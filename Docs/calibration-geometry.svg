@@ -1,0 +1,128 @@
+<svg viewBox="0 0 760 940" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>How the calibration angles are measured</title>
+<desc>Two diagrams: one showing the 5 calibration points as seen from the eye with their angular spacing, and one showing how bias angle is measured as the gap between the true direction to a target and the raw measured gaze direction. A legend explains three different degree values used in the code.</desc>
+<defs>
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #F7F7F5;
+  --ink: #26211C;
+  --ink-soft: #6B655D;
+  --line: #C9C3B8;
+  --ray: #888780;
+  --accent: #534AB7;
+  --good: #0F6E56;
+  --warn: #D85A30;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1A1815;
+    --panel: #262320;
+    --ink: #F1EFE8;
+    --ink-soft: #B4B2A9;
+    --line: #444441;
+    --ray: #888780;
+    --accent: #AFA9EC;
+    --good: #5DCAA5;
+    --warn: #F0997B;
+  }
+}
+text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+.label { font-size: 15px; font-weight: 600; }
+.sub { font-size: 12px; fill: var(--ink-soft); }
+.tag { font-size: 12px; font-weight: 600; }
+</style>
+</defs>
+
+<rect x="0" y="0" width="760" height="940" fill="var(--bg)"/>
+
+<!-- ===== PANEL A: the 5-point board, seen from the eye ===== -->
+<rect x="16" y="16" width="728" height="410" rx="14" fill="var(--panel)"/>
+<text x="40" y="50" class="label">Panel A — Why the 5 points are 16°-28° apart</text>
+<text x="40" y="70" class="sub">This spacing is pure geometry from the point offsets in CalibrationManager.cs — not a tracking measurement.</text>
+
+<rect x="255" y="95" width="250" height="170" rx="8" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="380" y="86" text-anchor="middle" class="sub">the 5 markers, 2m in front of the eye</text>
+
+<circle cx="380" cy="380" r="7" fill="var(--accent)"/>
+<text x="380" y="405" text-anchor="middle" class="tag">Eye</text>
+
+<circle cx="380" cy="180" r="6" fill="var(--ink)"/>
+<text x="380" y="165" text-anchor="middle" class="sub">Center</text>
+
+<circle cx="290" cy="140" r="6" fill="var(--ink)"/>
+<text x="270" y="122" text-anchor="middle" class="sub">Up-left</text>
+
+<circle cx="470" cy="140" r="6" fill="var(--ink)"/>
+<text x="490" y="122" text-anchor="middle" class="sub">Up-right</text>
+
+<circle cx="290" cy="220" r="6" fill="var(--ink)"/>
+<text x="265" y="240" text-anchor="middle" class="sub">Down-left</text>
+
+<circle cx="470" cy="220" r="6" fill="var(--ink)"/>
+<text x="497" y="240" text-anchor="middle" class="sub">Down-right</text>
+
+<line x1="380" y1="380" x2="380" y2="186" stroke="var(--ray)" stroke-width="1.5"/>
+<line x1="380" y1="380" x2="290" y2="146" stroke="var(--ray)" stroke-width="1.5"/>
+<line x1="380" y1="380" x2="470" y2="146" stroke="var(--ray)" stroke-width="1.5"/>
+<line x1="380" y1="380" x2="290" y2="226" stroke="var(--ray)" stroke-width="1.5"/>
+<line x1="380" y1="380" x2="470" y2="226" stroke="var(--ray)" stroke-width="1.5"/>
+
+<path d="M 355 358 A 30 30 0 0 1 380 350" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<text x="335" y="345" class="tag" fill="var(--accent)">~16°</text>
+<text x="335" y="360" class="sub">center→corner</text>
+
+<path d="M 300 335 A 90 90 0 0 1 380 350" fill="none" stroke="var(--good)" stroke-width="2"/>
+<text x="270" y="300" class="tag" fill="var(--good)">~28°</text>
+<text x="240" y="317" class="sub">corner→opposite corner</text>
+
+<text x="40" y="300" class="sub" font-style="italic">Move CalibrationManager's</text>
+<text x="40" y="316" class="sub" font-style="italic">calibrationPointLocalOffsets</text>
+<text x="40" y="332" class="sub" font-style="italic">and these angles change too.</text>
+
+<!-- ===== PANEL B: bias angle at one point ===== -->
+<rect x="16" y="444" width="728" height="290" rx="14" fill="var(--panel)"/>
+<text x="40" y="478" class="label">Panel B — What "bias" (pointCorrectionAngle) measures</text>
+<text x="40" y="498" class="sub">The angle between two RAYS from the eye — not a distance — so it stays meaningful at any depth.</text>
+
+<circle cx="90" cy="670" r="7" fill="var(--accent)"/>
+<text x="90" y="700" text-anchor="middle" class="tag">Eye</text>
+
+<line x1="90" y1="670" x2="560" y2="550" stroke="var(--good)" stroke-width="2.5"/>
+<circle cx="560" cy="550" r="6" fill="var(--good)"/>
+<text x="575" y="545" class="tag" fill="var(--good)">Target (true direction)</text>
+
+<line x1="90" y1="670" x2="560" y2="620" stroke="var(--warn)" stroke-width="2.5" stroke-dasharray="6 5"/>
+<circle cx="560" cy="620" r="6" fill="var(--warn)"/>
+<text x="575" y="625" class="tag" fill="var(--warn)">Raw measured direction</text>
+
+<path d="M 300 610 A 220 220 0 0 1 300 595" fill="none" stroke="var(--ink)" stroke-width="2"/>
+<text x="230" y="640" class="tag">bias angle</text>
+<text x="230" y="657" class="sub">(pointCorrectionAngle)</text>
+
+<text x="40" y="760" class="sub">Same 6° gap = ~10cm miss at 1m, but ~1m miss at 10m — degrees describe the DIRECTION error</text>
+<text x="40" y="778" class="sub">independent of distance, which is why every eye-tracking spec (Tobii, HTC) is published in degrees.</text>
+
+<!-- ===== Legend strip: three different degree numbers ===== -->
+<rect x="16" y="808" width="228" height="118" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+<text x="32" y="834" class="tag">~16°-28°</text>
+<text x="32" y="852" class="sub">Point spacing</text>
+<text x="32" y="870" class="sub">Geometry of our 5</text>
+<text x="32" y="886" class="sub">target offsets — a fact,</text>
+<text x="32" y="902" class="sub">not a threshold.</text>
+
+<rect x="266" y="808" width="228" height="118" rx="10" fill="var(--panel)" stroke="var(--warn)"/>
+<text x="282" y="834" class="tag" fill="var(--warn)">20°</text>
+<text x="282" y="852" class="sub">Rejection threshold</text>
+<text x="282" y="870" class="sub">Heuristic: is this point's</text>
+<text x="282" y="886" class="sub">data even usable?</text>
+<text x="282" y="902" class="sub">Not research-based.</text>
+
+<rect x="516" y="808" width="228" height="118" rx="10" fill="var(--panel)" stroke="var(--good)"/>
+<text x="532" y="834" class="tag" fill="var(--good)">1.5° / 3° / 5°</text>
+<text x="532" y="852" class="sub">Quality bands</text>
+<text x="532" y="870" class="sub">Excellent/Good/Fair/Poor —</text>
+<text x="532" y="886" class="sub">grounded in published VR</text>
+<text x="532" y="902" class="sub">eye-tracker accuracy studies.</text>
+
+</svg>

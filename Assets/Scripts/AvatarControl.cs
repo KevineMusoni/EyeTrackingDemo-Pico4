@@ -5,6 +5,8 @@ using UnityEngine;
 
 public class AvatarControl : MonoBehaviour
 {
+    // inherits ETObject for automatic focus-detection
+    
     public SkinnedMeshRenderer Skin;
     public SkinnedMeshRenderer LeftEyeExample;
     public SkinnedMeshRenderer RightEyeExample;

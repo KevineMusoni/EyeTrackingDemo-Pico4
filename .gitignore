@@ -58,3 +58,13 @@ sysinfo.txt
 # Crashlytics generated file
 crashlytics-build.properties
 
+# Unity Burst compiler debug/backup output - regenerated per editor session, not source
+ET_*_BackUpThisFolder_ButDontShipItWithYourGame/
+ET_*_BurstDebugInformation_DoNotShip/
+
+# Unity editor-local user settings (per-machine layout/search state, not shared project state)
+/[Uu]ser[Ss]ettings/
+
+# Editor-local VS Code settings
+.vscode/
+

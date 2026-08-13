@@ -12,6 +12,8 @@ This project is a fork of [Pico's official EyeTrackingDemo sample](https://githu
 - **Gaze-driven heatmap prototype**, stamping heat onto an object's surface wherever the user
   looks, with brush size auto-scaled to that object's real physical size:
   [`MeshGazeHeatmap.cs`](Assets/Scripts/MeshGazeHeatmap.cs).
+
+  <img src="Docs/Screenshots/heatmap-cube.jpeg" width="32%"> <img src="Docs/Screenshots/heatmap-madflower.jpeg" width="32%">
 - **Per-object dwell-time report**, replacing the original live gaze-vector readout with an
   accumulating "seconds looked at each object" report, in
   [`EyeTrackingManager.cs`](Assets/Scripts/EyeTrackingManager.cs).
@@ -132,6 +134,10 @@ training-set bias side by side (e.g. `Residual error=2.1° (Good, 58%) - trainin
 0.9° for comparison`) so you can see how much the training-only number would have overstated
 accuracy.
 
+Both outcomes, captured on-device:
+
+<img src="Docs/Screenshots/calibration-quality-too-low.jpeg" width="45%"> <img src="Docs/Screenshots/calibration-passed-excellent.jpeg" width="45%">
+
 **Cross-scene handoff:** `CalibrationCorrection`/`IsCalibrated` are `static` fields - held in
 memory only, reset every launch (multiple people may share the headset). On pass,
 `SceneManager.LoadScene()` replaces `Calibration.unity` with `EyeTrackingDemo.unity`, and
@@ -176,4 +182,4 @@ you look away. Implementation: derive from `ETObject` and implement `IsFocused()
 blinking, read directly from the headset's eye-tracking sensors. Implementation:
 `PXR_EyeTracking.GetLeftEyeGazeOpenness`/`GetRightEyeGazeOpenness`.
 
-![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/Avatar.png)
+![One eye closed to test openness tracking](Docs/Screenshots/avatar-eye-openness.jpeg)

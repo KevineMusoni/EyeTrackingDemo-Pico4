@@ -51,18 +51,15 @@ automatically tries the whole thing again on its own - you don't need to do anyt
 it genuinely passes that quality check do you see a green pass message with a score from 0-100%
 (higher is better), and get taken straight into the main demo.
 
-**A note if you're watching someone go through this:** there's no limit on how many times it will
-retry - this project intentionally favors getting an accurate result over a fast one, so seeing
-several orange "retrying" messages in a row is expected behavior, not a sign anything is broken.
-If it keeps retrying for an unusually long time, that's more likely a headset fit issue (try
+There's no limit on how many times it will retry - this project favors an accurate result over a
+fast one, so seeing several orange "retrying" messages in a row is expected, not a sign anything
+is broken. If it retries for an unusually long time, that's more likely a headset fit issue (try
 readjusting it) than a software problem.
 
-<details>
-<summary><b>Technical details</b> (implementation, for developers)</summary>
-
-Before the main demo scene loads, a dedicated `Calibration.unity` scene runs a 5-point rotational calibration to correct for ANGULAR bias in the raw eye-tracking data (the tracker's estimate of gaze direction being consistently off by a small rotation). This is separate from - and more accurate than - the simpler joystick-based offset adjustment described below, which only shifts the gaze ray's starting *position*, not its *direction*.
-
-Implementation: [`Assets/Scripts/CalibrationManager.cs`](Assets/Scripts/CalibrationManager.cs).
+**Technical details** (implementation): runs in a dedicated `Calibration.unity` scene, before the
+main demo loads, correcting for ANGULAR bias in the raw eye-tracking data (the tracker's estimate
+of gaze direction being consistently off by a small rotation). Code:
+[`Assets/Scripts/CalibrationManager.cs`](Assets/Scripts/CalibrationManager.cs).
 
 **Flow:**
 
@@ -98,36 +95,17 @@ flowchart TD
     N --> O([Load EyeTrackingDemo.unity])
 ```
 
-**Why degrees, not distance:** each calibration point's error is measured as the angle between
-the *true* direction to that point and the *raw measured* gaze direction (`Quaternion.Angle`
-between two direction rays), not a distance in meters - the same angular gap means a bigger or
-smaller real-world miss depending on how far away you're looking, so every eye-tracking spec
-(Tobii, HTC) is published in degrees for the same reason.
-
 ![Calibration geometry - point spacing and bias angle explained](Docs/calibration-geometry.svg)
 
-**Key thresholds in the code, and where each one comes from:**
+**Key thresholds:**
 
 | Value | Purpose | Basis |
 |---|---|---|
 | ~16°-28° | Spacing between the 5 target points | Geometry of `calibrationPointLocalOffsets` - a fact about the layout, not a tuned threshold |
 | 20° (`maxPlausiblePointCorrectionDegrees`) | Per-point rejection - is this point's data even usable? | Heuristic: comfortably above real tracking bias/noise, comfortably below "not looking at the marker at all" |
-| 1.5° / 3° / 5° | Quality label bands (Excellent/Good/Fair/Poor); **3° (`GoodBiasCeilingDegrees`) also gates retry** - Fair/Poor now retries automatically, only Excellent/Good actually proceed | Judgment call, kept deliberately strict for precision-sensitive use cases - not yet independently validated for this device (see note below) |
+| 1.5° / 3° / 5° | Quality label bands (Excellent/Good/Fair/Poor); **3° also gates retry** - only Excellent/Good proceed | Judgment call, not yet independently validated for this device - see [Open question](#open-question-validating-the-quality-bands-scientifically) below |
 
-Note the 20° rejection threshold and the 1.5°/3°/5° quality bands answer two different
-questions - "is this one point's data even usable?" (heuristic) vs. "how good is an already-valid
-result?" (currently a judgment call) - and are deliberately kept as separate constants in the
-code so they can't drift into meaning the same thing.
-
-**On the quality bands specifically:** these are not yet backed by device-specific measurement.
-Third-party research on other VR headsets exists, but doesn't transfer reliably to this project -
-different hardware (dedicated eye-tracking chips vs. Pico 4 Enterprise's in-house sensors) and, in
-the case that came closest to being relevant, a small pilot study (n=11) whose own authors caution
-against generalizing. Treat 1.5°/3°/5° as a reasonable starting point pending real validation on
-this headset, not a settled number - see [Open question: validating the quality bands](#open-question-validating-the-quality-bands-scientifically)
-below for how we plan to close that gap.
-
-There are now two separate gates - failing either one retries from scratch, no app restart needed:
+Two separate gates - failing either one retries from scratch, no app restart needed:
 
 **Gate 1 - training data validity:** requires all 5 training points to collect valid data
 (`RecordCurrentPointCorrection` rejects a point outright if its correction angle exceeds 20°,
@@ -144,31 +122,20 @@ point's raw gaze and measures how far off the *corrected* result still is from t
 optimistically biased). If both validation points get rejected (rare), the quality gate below
 falls back to the training-set bias rather than showing a misleading 0°/100%.
 
-That residual error becomes the plain-language label plus 0-100% score
-(`GetBiasQualityLabel`/`GetBiasQualityPercent`, percentage linearly mapped from 0° = 100% to the
-same 5° "Poor" ceiling the label uses, `PoorBiasCeilingDegrees`, so both numbers always agree) -
-**and it also gates progression**: only Excellent/Good (residual ≤3°, `GoodBiasCeilingDegrees`)
-actually proceeds to the main scene. Fair/Poor shows orange `"Calibration Quality Too Low -
-Retrying..."` and restarts from point 1, same as a gate 1 failure. This retry has **no attempt
-cap by design** - for a precision-sensitive use case, an actually-good calibration matters more
-than a fast one, so it keeps retrying indefinitely rather than settling for a best-effort result
-after N tries.
+That residual error becomes the label + 0-100% score
+(`GetBiasQualityLabel`/`GetBiasQualityPercent`, linearly mapped from 0° = 100% to the 5° "Poor"
+ceiling, `PoorBiasCeilingDegrees`) - and gates progression: only Excellent/Good (residual ≤3°,
+`GoodBiasCeilingDegrees`) proceeds. Fair/Poor shows orange `"Calibration Quality Too Low -
+Retrying..."` and restarts from point 1, uncapped by design - for a precision-sensitive use case,
+an accurate result matters more than a fast one. `adb logcat` shows both the residual and the
+training-set bias side by side (e.g. `Residual error=2.1° (Good, 58%) - training-set bias was
+0.9° for comparison`) so you can see how much the training-only number would have overstated
+accuracy.
 
-`adb logcat` shows both numbers side by side regardless of outcome (e.g. `Residual error=2.1°
-(Good, 58%) - training-set bias was 0.9° for comparison`) so you can see how much the
-training-only number would have overstated accuracy.
-
-**Cross-scene handoff:** `CalibrationCorrection` and `IsCalibrated` are `static` fields - held in
-memory only, never written to disk (recalibrating from scratch every launch is intentional, since
-multiple people may share the headset). Once calibration passes, `SceneManager.LoadScene()`
-replaces `Calibration.unity` with `EyeTrackingDemo.unity` (sequential, not additive - no scene
-overlap), and `EyeTrackingManager.cs` reads `CalibrationManager.CalibrationCorrection` directly by
-class name each frame to rotate its gaze vector.
-
-You can also adjust eye tracking offset with the trigger button on the right controller, which
-shifts the gaze ray's starting position independently of the calibration correction above.
-
-![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/bd7e1f592971bd35fc4fca292f05afb7add51ab5/Screenshots/Calibration.png)
+**Cross-scene handoff:** `CalibrationCorrection`/`IsCalibrated` are `static` fields - held in
+memory only, reset every launch (multiple people may share the headset). On pass,
+`SceneManager.LoadScene()` replaces `Calibration.unity` with `EyeTrackingDemo.unity`, and
+`EyeTrackingManager.cs` reads `CalibrationManager.CalibrationCorrection` directly each frame.
 
 #### Open question: validating the quality bands scientifically
 
@@ -198,28 +165,15 @@ is now real, device-specific measured data instead of a borrowed benchmark. Stat
 
 **What this does:** two 3D objects in the scene (a cube and an animated character) react when you
 look at them - they visually highlight to show they're "focused," and un-highlight the moment
-you look away.
-
-<details>
-<summary><b>Technical details</b> (implementation, for developers)</summary>
-
-This part shows you how to detect if a 3D model with animation is focused or unfocused by eye-tracking. To create your own eye tracking interactive game object, you can simply derive from ETObject and implement IsFocused() and UnFocused().
+you look away. Implementation: derive from `ETObject` and implement `IsFocused()`/`UnFocused()`.
 
 ![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/3DModels.png)
-
-</details>
 
 ### Avatar
 *Original Pico sample, unmodified.*
 
 **What this does:** a virtual avatar's eyes blink and open/close in sync with your own real
-blinking, read directly from the headset's eye-tracking sensors.
-
-<details>
-<summary><b>Technical details</b> (implementation, for developers)</summary>
-
-This part shows you how to get and apply eye openness to an avatar by calling PXR_EyeTracking.GetLeftEyeGazeOpenness(out leftEyeOpenness) and PXR_EyeTracking.GetRightEyeGazeOpenness(out rightEyeOpenness).
+blinking, read directly from the headset's eye-tracking sensors. Implementation:
+`PXR_EyeTracking.GetLeftEyeGazeOpenness`/`GetRightEyeGazeOpenness`.
 
 ![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/Avatar.png)
-
-</details>

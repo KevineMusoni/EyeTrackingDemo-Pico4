@@ -38,8 +38,8 @@ text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
 
 <!-- ===== PANEL A: the 5-point board, seen from the eye ===== -->
 <rect x="16" y="16" width="728" height="410" rx="14" fill="var(--panel)"/>
-<text x="40" y="50" class="label">Panel A — Why the 5 points are 16°-28° apart</text>
-<text x="40" y="70" class="sub">This spacing is pure geometry from the point offsets in CalibrationManager.cs — not a tracking measurement.</text>
+<text x="40" y="50" class="label">Panel A - Why the 5 points are 16°-28° apart</text>
+<text x="40" y="70" class="sub">This spacing is pure geometry from the point offsets in CalibrationManager.cs - not a tracking measurement.</text>
 
 <rect x="255" y="95" width="250" height="170" rx="8" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"/>
 <text x="380" y="86" text-anchor="middle" class="sub">the 5 markers, 2m in front of the eye</text>
@@ -82,8 +82,8 @@ text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
 
 <!-- ===== PANEL B: bias angle at one point ===== -->
 <rect x="16" y="444" width="728" height="290" rx="14" fill="var(--panel)"/>
-<text x="40" y="478" class="label">Panel B — What "bias" (pointCorrectionAngle) measures</text>
-<text x="40" y="498" class="sub">The angle between two RAYS from the eye — not a distance — so it stays meaningful at any depth.</text>
+<text x="40" y="478" class="label">Panel B - What "bias" (pointCorrectionAngle) measures</text>
+<text x="40" y="498" class="sub">The angle between two RAYS from the eye - not a distance - so it stays meaningful at any depth.</text>
 
 <circle cx="90" cy="670" r="7" fill="var(--accent)"/>
 <text x="90" y="700" text-anchor="middle" class="tag">Eye</text>
@@ -100,7 +100,7 @@ text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
 <text x="230" y="640" class="tag">bias angle</text>
 <text x="230" y="657" class="sub">(pointCorrectionAngle)</text>
 
-<text x="40" y="760" class="sub">Same 6° gap = ~10cm miss at 1m, but ~1m miss at 10m — degrees describe the DIRECTION error</text>
+<text x="40" y="760" class="sub">Same 6° gap = ~10cm miss at 1m, but ~1m miss at 10m - degrees describe the DIRECTION error</text>
 <text x="40" y="778" class="sub">independent of distance, which is why every eye-tracking spec (Tobii, HTC) is published in degrees.</text>
 
 <!-- ===== Legend strip: three different degree numbers ===== -->
@@ -108,7 +108,7 @@ text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
 <text x="32" y="834" class="tag">~16°-28°</text>
 <text x="32" y="852" class="sub">Point spacing</text>
 <text x="32" y="870" class="sub">Geometry of our 5</text>
-<text x="32" y="886" class="sub">target offsets — a fact,</text>
+<text x="32" y="886" class="sub">target offsets - a fact,</text>
 <text x="32" y="902" class="sub">not a threshold.</text>
 
 <rect x="266" y="808" width="228" height="118" rx="10" fill="var(--panel)" stroke="var(--warn)"/>
@@ -121,7 +121,7 @@ text { font-family: -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
 <rect x="516" y="808" width="228" height="118" rx="10" fill="var(--panel)" stroke="var(--good)"/>
 <text x="532" y="834" class="tag" fill="var(--good)">1.5° / 3° / 5°</text>
 <text x="532" y="852" class="sub">Quality bands</text>
-<text x="532" y="870" class="sub">Excellent/Good/Fair/Poor —</text>
+<text x="532" y="870" class="sub">Excellent/Good/Fair/Poor -</text>
 <text x="532" y="886" class="sub">grounded in published VR</text>
 <text x="532" y="902" class="sub">eye-tracker accuracy studies.</text>
 

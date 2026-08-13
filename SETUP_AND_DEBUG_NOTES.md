@@ -1,9 +1,9 @@
-# Eye Tracking — Notes
+# Eye Tracking - Notes
 
 ## Main project crash (Surgical VR)
 - SIGSEGV, null pointer, in Vulkan driver, ~130ms after XR session FOCUSED.
 - Likely cause: two foveation features enabled at once in `OpenXRPackageSettings.asset`
-  (Android) — Unity's `FoveatedRenderingFeature` + `MetaXRFoveationFeature`, both drive
+  (Android) - Unity's `FoveatedRenderingFeature` + `MetaXRFoveationFeature`, both drive
   `XR_FB_foveation_vulkan`. Suspected conflict on first swapchain submit.
 - Ruled out: eye tracking (OS-level, not app), video teardown (unrelated process), missing
   scripts in scene 
@@ -11,7 +11,7 @@
 ## Demo project setup (EyeTrackingDemo, Pico 4 Enterprise)
 Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed to get it running:
 
-1. `Packages/manifest.json` — `com.unity.xr.picoxr` pointed to a dead path on the original
+1. `Packages/manifest.json` - `com.unity.xr.picoxr` pointed to a dead path on the original
    author's PC → repointed to the embedded package folder already in the repo.
 2. `JDK not found` → installed missing OpenJDK module via Unity Hub (2021.3.13f1).
 3. Gradle build failed on a corrupted `debug.keystore` → killed 2 stuck Gradle daemons, renamed
@@ -32,8 +32,8 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
 - **Confirmed working now.**
 
 ## Vector vs Point (gaze data display). 
-- `GetCombineEyeGazeVector` = gaze **direction** — updates continuously as eyes move. //modified
-- `GetCombineEyeGazePoint` = gaze ray **origin** (near the eyes), not where you're looking —
+- `GetCombineEyeGazeVector` = gaze **direction** - updates continuously as eyes move. //modified
+- `GetCombineEyeGazePoint` = gaze ray **origin** (near the eyes), not where you're looking -
   barely changes since it's relative to head, not gaze target. Expected to look static.
 - Actual "what am I looking at" coordinate = raycast from origin along vector
   (`GazeTargetControl()` already does this via `Physics.SphereCast`, drives `Greenpoint`).
@@ -44,7 +44,7 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
 
 ---
 
-# ✅ EYE TRACKING CORE SETUP — DONE
+# ✅ EYE TRACKING CORE SETUP - DONE
 
 ---
 
@@ -58,25 +58,25 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
   don't auto-fill it like Mesh Filters do) and **Convex unchecked** (required for
   `RaycastHit.textureCoord` to return UV data).
 
-**Data side — `Assets/Scripts/MeshGazeHeatmap.cs`** (new script, on `MadFlower`):
+**Data side - `Assets/Scripts/MeshGazeHeatmap.cs`** (new script, on `MadFlower`):
 - Accumulates heat into a runtime 512x512 texture, stamped in UV space wherever gazed at.
 - Soft circular brush (falloff at the edges), builds up over time (`heatPerSecond`), colored
   via a blue→green→yellow→red gradient based on accumulated intensity.
-- Perf note: uses `GetPixel`/`SetPixel` per stamp — fine for prototyping, not production-speed
+- Perf note: uses `GetPixel`/`SetPixel` per stamp - fine for prototyping, not production-speed
   (would need `SetPixels32`/a compute shader if this becomes a real feature).
 
-**Hook — `EyeTrackingManager.GazeTargetControl()`:**
+**Hook - `EyeTrackingManager.GazeTargetControl()`:**
 - Calls `heatmap.StampAt(uv)` whenever the gaze hits an object with `MeshGazeHeatmap`.
 - `Physics.SphereCast` (used for the main gaze hit-test) doesn't populate
-  `RaycastHit.textureCoord` — only `Physics.Raycast` does — so a small supplementary raycast
+  `RaycastHit.textureCoord` - only `Physics.Raycast` does - so a small supplementary raycast
   along the same ray gets the UV data, with a sanity check it hit the same collider.
 
-**Display side — `MadFlower_HeatOverlay`** (duplicate of `MadFlower`):
-- No Mesh Collider (can't intercept the gaze raycast — only the original mesh should).
+**Display side - `MadFlower_HeatOverlay`** (duplicate of `MadFlower`):
+- No Mesh Collider (can't intercept the gaze raycast - only the original mesh should).
 - Scaled slightly larger (~1.01) to sit just above the original surface without z-fighting.
 - Material: `Assets/Materials/HeatOverlay_MAT.mat`. Fully transparent where heat = 0, so the
   original mesh shows through untouched; only gazed-at spots show color.
-- **BUG FOUND on-device**: originally set to `Universal Render Pipeline/Unlit` — wrong, this
+- **BUG FOUND on-device**: originally set to `Universal Render Pipeline/Unlit` - wrong, this
   project's `GraphicsSettings.asset` has `m_CustomRenderPipeline: {fileID: 0}` (no SRP
   assigned, still Built-in Render Pipeline despite URP being an installed package). URP shader
   rendered as solid magenta/purple (Unity's shader-error fallback) instead of transparent.
@@ -98,7 +98,7 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
   vertices/UVs/triangles) to get local texel density, then converts the desired world radius
   into the correct pixel radius for that exact spot on that exact object.
 - `StampAt()` signature changed from `Vector2 uv` to the full `RaycastHit` (needs
-  `triangleIndex`, not just `textureCoord`) — updated the call site in
+  `triangleIndex`, not just `textureCoord`) - updated the call site in
   `EyeTrackingManager.GazeTargetControl()` to match (`heatmap.StampAt(uvHit)`).
 - Script now has `[RequireComponent(typeof(MeshCollider))]` since it reads the collider's mesh.
 - Old `brushRadiusPixels` Inspector value on existing objects is now orphaned/ignored (Unity
@@ -195,7 +195,7 @@ position-only fix can't properly correct. Built a proper calibration step instea
   spot, paints a soft circular blob there, accumulating over time (capped at "hot").
 - `ComputeBrushRadiusPixels()`: looks up the exact hit triangle, compares its real-world size
   to its UV size, converts the desired real-world brush radius (10cm default) into the right
-  pixel count for that specific object/spot — same physical dot size everywhere.
+  pixel count for that specific object/spot - same physical dot size everywhere.
 - `HeatGradient()`: maps 0-1 intensity to a color, blue → green → yellow → red.
 
 **`EyeTrackingManager.cs` hook**

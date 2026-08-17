@@ -1,9 +1,9 @@
 {
     "m_SelectedDeviceId": "PA8E50MGH2020230D",
     "m_SelectedPackage": {
-        "deviceId": "",
-        "name": "",
-        "processId": 0,
+        "deviceId": "PA8E50MGH2020230D",
+        "name": "com.DefaultCompany.PICOEyeTracking",
+        "processId": 19580,
         "exited": false
     },
     "m_SelectedPriority": 0,
@@ -53,12 +53,6 @@
         {
             "deviceId": "PA8E50MGH2020230D",
             "name": "com.DefaultCompany.PICOEyeTracking",
-            "processId": 3852,
-            "exited": true
-        },
-        {
-            "deviceId": "PA8E50MGH2020230D",
-            "name": "com.DefaultCompany.PICOEyeTracking",
             "processId": 7735,
             "exited": true
         },
@@ -78,6 +72,12 @@
             "deviceId": "PA8E50MGH2020230D",
             "name": "com.DefaultCompany.PICOEyeTracking",
             "processId": 19864,
+            "exited": true
+        },
+        {
+            "deviceId": "PA8E50MGH2020230D",
+            "name": "com.DefaultCompany.PICOEyeTracking",
+            "processId": 19580,
             "exited": false
         }
     ],

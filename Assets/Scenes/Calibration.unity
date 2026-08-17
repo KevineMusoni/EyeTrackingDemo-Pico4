@@ -807,8 +807,10 @@ MonoBehaviour:
   - {x: -0.5, y: -0.3, z: 2}
   - {x: 0.5, y: -0.3, z: 2}
   validationPointLocalOffsets:
-  - {x: 0.25, y: 0.15, z: 2}
-  - {x: -0.25, y: -0.15, z: 2}
+  - {x: 0, y: 0.583, z: 2}
+  - {x: 0, y: -0.583, z: 2}
+  - {x: -0.583, y: 0, z: 2}
+  - {x: 0.583, y: 0, z: 2}
   dwellDurationPerPoint: 2
   settleTimeBeforeSampling: 1
   resultDisplayDuration: 2

@@ -15,8 +15,8 @@ public class EyeTrackingManager : MonoBehaviour
 
     // MODIFIED: no longer an Inspector-wired reference - CalibrationManager now lives in a
     // separate scene file (Calibration.unity), and Inspector references can't cross scene
-    // files. Read CalibrationManager.CalibrationCorrection directly (a static property) each
-    // frame in Update() instead - see that class for why it's static.
+    // files. Read CalibrationManager.CalibrationCorrectionLocal directly (a static property)
+    // each frame in Update() instead - see that class for why it's static.
 
     private Vector3 combineEyeGazeVector;
     private Vector3 combineEyeGazeOriginOffset;
@@ -24,7 +24,6 @@ public class EyeTrackingManager : MonoBehaviour
     private Matrix4x4 headPoseMatrix;
     private Matrix4x4 originPoseMatrix;
 
-    private Vector3 combineEyeGazeVectorInWorldSpace;
     private Vector3 combineEyeGazeOriginInWorldSpace;
 
     private uint leftEyeStatus;
@@ -51,13 +50,6 @@ public class EyeTrackingManager : MonoBehaviour
     // problem: this isn't a single live value, it's an accumulating total per object.
     private Dictionary<string, float> dwellTimes = new Dictionary<string, float>();
 
-    // ADDED: read-only access to this frame's RAW (uncorrected) world-space gaze data, for
-    // CalibrationManager to sample from during its calibration routine. "Raw" specifically
-    // means before CalibrationCorrection is applied below - calibration needs to measure the
-    // actual tracking bias, which would be hidden if it read already-corrected data.
-    public Vector3 RawGazeOriginWorld => combineEyeGazeOriginInWorldSpace;
-    public Vector3 RawGazeVectorWorld => combineEyeGazeVectorInWorldSpace;
-
     void Start()
     {
         combineEyeGazeOriginOffset = Vector3.zero;
@@ -76,16 +68,21 @@ public class EyeTrackingManager : MonoBehaviour
             combineEyeGazeOriginOffset.y += primary2DAxis.y*0.001f;
 
         }
-        // pxr eyetracking, static class exposing data to code
-        // eye gaze vector - ie. eye compass
-        // gaze point - pysical location of the eyes
-        PXR_EyeTracking.GetHeadPosMatrix(out headPoseMatrix);
-        PXR_EyeTracking.GetCombineEyeGazeVector(out combineEyeGazeVector);
-        PXR_EyeTracking.GetCombineEyeGazePoint(out combineEyeGazeOrigin);
-        //Translate Eye Gaze point and vector to world space
+        // MODIFIED: was calling GetHeadPosMatrix/GetCombineEyeGazeVector/GetCombineEyeGazePoint
+        // directly and ignoring their bool returns - a failed PXR read still writes zero-valued
+        // data into its out parameter, which would otherwise snap SpotLight/GazeTargetControl/
+        // the report to a bogus reading for that frame. TryReadRawGaze (GazeReading.cs) checks
+        // all of them; on failure this frame is skipped entirely and everything just keeps
+        // last frame's values instead of jumping to zero.
+        if (!GazeReading.TryReadRawGaze(out headPoseMatrix, out combineEyeGazeVector, out combineEyeGazeOrigin))
+        {
+            return;
+        }
+
+        //Translate Eye Gaze origin to world space (position only - direction handled below,
+        // separately, since the correction has to be applied before that conversion now)
         combineEyeGazeOrigin += combineEyeGazeOriginOffset;
         combineEyeGazeOriginInWorldSpace = originPoseMatrix.MultiplyPoint(headPoseMatrix.MultiplyPoint(combineEyeGazeOrigin));
-        combineEyeGazeVectorInWorldSpace = originPoseMatrix.MultiplyVector(headPoseMatrix.MultiplyVector(combineEyeGazeVector));
 
         // ADDED: per-eye diagnostic logging - populates the previously-unused leftEyeStatus/
         // rightEyeStatus fields, to check whether one eye is tracking worse than the other
@@ -96,15 +93,23 @@ public class EyeTrackingManager : MonoBehaviour
         PXR_EyeTracking.GetRightEyeGazeOpenness(out float rightOpenness);
         Debug.Log($"[EyeTrackingManager] L status={leftEyeStatus} openness={leftOpenness:F2} | R status={rightEyeStatus} openness={rightOpenness:F2}");
 
-        // MODIFIED: reads the static CalibrationManager.CalibrationCorrection directly (was
-        // an Inspector-wired instance reference) - see field comment above for why. Only the
-        // direction is corrected, not the origin point - matches the angular-bias error
+        // MODIFIED: reads the static CalibrationManager.CalibrationCorrectionLocal directly
+        // (was an Inspector-wired instance reference) - see field comment above for why. Only
+        // the direction is corrected, not the origin point - matches the angular-bias error
         // model the calibration routine measures. Safe unconditionally: this static property
         // defaults to Quaternion.identity (a no-op rotation) until/unless a Calibration scene
         // actually runs and completes - if this main scene is opened directly without ever
         // going through Calibration.unity (e.g. quick testing in the Editor), it's just a
         // harmless no-op, same as raw uncorrected data.
-        Vector3 correctedGazeVectorWorld = CalibrationManager.CalibrationCorrection * combineEyeGazeVectorInWorldSpace;
+        //
+        // MODIFIED: the correction is now applied to combineEyeGazeVector (LOCAL, straight from
+        // GazeReading) BEFORE the world-space transform, not after - it was previously applied
+        // to the already-world-space vector, which only stayed accurate for as long as the head
+        // was in the same orientation it was in during calibration. CalibrationCorrectionLocal
+        // is fit in this same local frame (see CalibrationManager.cs), so applying it here means
+        // it correctly "rides along" with head rotation instead of being a fixed room direction.
+        Vector3 correctedGazeVectorLocal = CalibrationManager.CalibrationCorrectionLocal * combineEyeGazeVector;
+        Vector3 correctedGazeVectorWorld = originPoseMatrix.MultiplyVector(headPoseMatrix.MultiplyVector(correctedGazeVectorLocal));
 
         SpotLight.transform.position = combineEyeGazeOriginInWorldSpace;
         SpotLight.transform.rotation = Quaternion.LookRotation(correctedGazeVectorWorld, Vector3.up);
@@ -134,7 +139,7 @@ public class EyeTrackingManager : MonoBehaviour
         Ray ray = new Ray(origin,vector);
         if (Physics.SphereCast(origin,0.0005f,vector,out hitinfo))
         {
-            // ADDED: expose the hit point for the text display regardless of collider tag,
+            // Expose hit point for the text display regardless of collider tag,
             // "Target" shows what is actually under the gaze even for non-"Target"-tagged objects.
             hasGazeTarget = true;
             gazeTargetPoint = hitinfo.point;

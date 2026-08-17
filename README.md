@@ -48,7 +48,7 @@ To enable eye tracking feature you need to mark the Eye Tracking check box on PX
 **What this does:** every headset's eye tracking has a small natural offset, before you can use
 the app, it asks you to look at 5 dots shown one at a time. It measures how far off your gaze was
 from each dot and learns a correction for it - then checks its own work by testing the correction
-against 2 more dots it never used to learn from. If that re-check comes back too imprecise, it
+against 4 more dots (top, bottom, left, right) it never used to learn from. If that re-check comes back too imprecise, it
 automatically tries the whole thing again on its own - you don't need to do anything. Only once
 it genuinely passes that quality check do you see a green pass message with a score from 0-100%
 (higher is better), and get taken straight into the main demo.
@@ -83,7 +83,7 @@ flowchart TD
     J -->|no| K{All 5 training points accepted?}
     K -->|no| L["Show 'Calibration Failed - Retrying' (red)"]
     L --> M[Reset state] --> B
-    K -->|yes| P[Freeze CalibrationCorrection - marker moves to validation point 1 of 2]
+    K -->|yes| P[Freeze CalibrationCorrection - marker moves to validation point 1 of 4]
     P --> Q{Update: dwell + settle, same as above}
     Q --> RG{Raw angle greater than 20 degrees?}
     RG -->|reject: likely not looking at marker| S
@@ -113,16 +113,40 @@ Two separate gates - failing either one retries from scratch, no app restart nee
 (`RecordCurrentPointCorrection` rejects a point outright if its correction angle exceeds 20°,
 same as an eye-tracking dropout). Fail here shows red `"Calibration Failed - Retrying..."`.
 
-**Gate 2 - measured quality** (the interesting one): on passing gate 1, `CalibrationCorrection`
-is frozen and the marker moves through 2 more points (`validationPointLocalOffsets`) that were
-**never** used to build the correction. Each one first passes through the *same* 20°
+**Gate 2 - measured quality** (the interesting one): on passing gate 1, `CalibrationCorrectionLocal`
+is frozen and the marker moves through 4 more points - top, bottom, left, right
+(`validationPointLocalOffsets`) - that were **never** used to build the correction. Each offset
+sits at the same ~16.26° angular distance from center as the training corners (same difficulty,
+just spent on one axis instead of split across two - derived, not copied, from
+`sqrt(0.5² + 0.3²) = 0.583 = 2·tan(16.26°)`), and together they cover the horizontal/vertical axes
+the old 2-point diagonal pair never directly tested. Each one first passes through the *same* 20°
 "were-they-looking-at-it" rejection check the training points use (checked on the raw, uncorrected
 angle - a glance-away during validation shouldn't corrupt the very number this feature exists to
 make honest); if accepted, `RecordValidationResidual` applies the now-frozen correction to that
 point's raw gaze and measures how far off the *corrected* result still is from the true direction
 - a train/test split, not a number measured on the same points used to fit it (which would be
-optimistically biased). If both validation points get rejected (rare), the quality gate below
-falls back to the training-set bias rather than showing a misleading 0°/100%.
+optimistically biased). **All validation points must succeed** - if even one is rejected or drops
+out, there's no fallback and no partial credit, it's treated as a failure and retried, the same
+as a gate 1 failure (`"Calibration Validation Incomplete - Retrying..."`).
+
+Each accepted point also gets a **precision** measurement, separate from that accuracy/residual
+number: the average angular deviation of its individual raw samples from their own mean direction
+(how tightly clustered the samples were around each other), as opposed to how far off that cluster
+was from the true point. A correction can be precise-but-biased (tight cluster, wrong spot) or
+accurate-but-imprecise (centered right, noisy) - tracking only one, as the original code did, hides
+that distinction. Precision is logged per-point and as a session average, but does not currently
+gate pass/fail - only the accuracy/residual number does.
+
+**The correction has to earn its use.** A fitted correction is only ever an estimate built from a
+short, noisy sample - if it happened to capture one-off sample noise rather than real, persistent
+tracking bias, applying it can leave gaze *worse* off than doing nothing. So alongside the
+corrected residual above, `HandleValidationComplete` also computes the *uncorrected* residual (raw
+gaze vs. the true point, `CalibrationCorrectionLocal` never applied - the same `rawAngle` already
+computed for the rejection gate, just also summed this time) across all 4 points. If the corrected
+average isn't actually better than the uncorrected average, the fitted correction is discarded -
+`CalibrationCorrectionLocal` resets to identity (PICO's raw output) and the reported/gated quality
+number switches to the uncorrected residual - so the quality label, percentage, and pass/fail gate
+always reflect whichever result is actually about to ship, not an assumed-good fitted correction.
 
 That residual error becomes the label + 0-100% score
 (`GetBiasQualityLabel`/`GetBiasQualityPercent`, linearly mapped from 0° = 100% to the 5° "Poor"
@@ -138,24 +162,28 @@ Both outcomes, captured on-device:
 
 <img src="Docs/Screenshots/calibration-quality-too-low.jpeg" width="45%"> <img src="Docs/Screenshots/calibration-passed-excellent.jpeg" width="45%">
 
-**Cross-scene handoff:** `CalibrationCorrection`/`IsCalibrated` are `static` fields - held in
+**Cross-scene handoff:** `CalibrationCorrectionLocal`/`IsCalibrated` are `static` fields - held in
 memory only, reset every launch (multiple people may share the headset). On pass,
 `SceneManager.LoadScene()` replaces `Calibration.unity` with `EyeTrackingDemo.unity`, and
-`EyeTrackingManager.cs` reads `CalibrationManager.CalibrationCorrection` directly each frame.
+`EyeTrackingManager.cs` reads `CalibrationManager.CalibrationCorrectionLocal` directly each frame,
+applying it to the local gaze vector before converting to world space (not after, as it used to -
+a world-space correction only stays accurate for as long as the head is in the same orientation
+it was in during calibration, which doesn't hold up once the user turns their head).
 
 #### Open question: validating the quality bands scientifically
 
 The 1.5°/3°/5° bands themselves are still a judgment call - but the *number they're applied to*
 is now real, device-specific measured data instead of a borrowed benchmark. Status:
 
-1. **Holdout validation points - implemented.** The 2 validation points above measure residual
+1. **Holdout validation points - implemented.** The 4 validation points above measure residual
    error on data `CalibrationCorrection` was never fit on, on this actual headset, every time
    someone calibrates. This is what makes the quality score trustworthy as a *relative* signal
    (better/worse between runs) even before the *absolute* band cutoffs are independently checked.
-2. **Precision (self-consistency) check - not yet implemented.** Alongside bias, track the
-   *spread* of raw samples collected during each point's settle window, not just their average.
-   A tight cluster of samples is evidence of a stable, trustworthy correction independently of
-   any external accuracy benchmark.
+2. **Precision (self-consistency) check - implemented.** Alongside residual/bias, each validation
+   point now also measures the *spread* of its raw samples around their own mean direction, not
+   just the average. Logged per-point and as a session average; a tight cluster is evidence of a
+   stable, trustworthy correction independently of any external accuracy benchmark - but this
+   number is diagnostic only so far, it doesn't yet gate pass/fail.
 3. **Derive the bar from actual task requirements - not yet implemented.** Instead of asking
    "what accuracy do other headsets achieve," compute the angular size of the smallest object
    this project needs the user to reliably select (using the same object-size logic already in

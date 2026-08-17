@@ -85,8 +85,6 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
   `SkinnedMeshRenderer` (`Start()` assigns the heat texture to its material there).
 
 
-
-
 ## Brush size now auto-scales to object size
 - Problem: `brushRadiusPixels` (fixed pixel count) made the dot look bigger on bigger objects
   and smaller on smaller ones, since UV space is always 0-1 regardless of physical object size
@@ -132,46 +130,66 @@ now **always shown** on the text panel, replacing the old live Vector/Point/Targ
 Since it's an accumulating total (not a live snapshot), there's no "looking at the report
 erases the data" problem - the panel just keeps growing the same running totals every frame.
 
-## 5-point rotational gaze calibration (new)
+## 5-point rotational gaze calibration (rebuilt into 2-phase: train + validate)
 
 **Why**: gaze felt slightly inaccurate. The demo's pre-existing joystick offset
 (`combineEyeGazeOriginOffset`) only corrects the gaze ray's starting *position* - real
-eye-tracking bias is usually *angular* (direction is off by a small rotation), which a
-position-only fix can't properly correct. Built a proper calibration step instead.
+eye-tracking bias is usually *angular*, which a position-only fix can't correct. Built a
+calibration step instead - later hardened into two phases once it became clear a quality score
+based only on training data would be misleading (grading a correction on the exact data used to
+build it is always optimistic, it doesn't test whether the correction actually generalizes).
 
-**New file**: `Assets/Scripts/CalibrationManager.cs`.
-- Shows one visible marker at 5 known positions in sequence (center + 4 corners of the field
-  of view, defined as local offsets from the CalibrationManager's own transform).
-- At each point: waits `settleTimeBeforeSampling` (default 1s) for the initial eye saccade to
-  settle, then averages raw gaze direction samples (`EyeTrackingManager.RawGazeVectorWorld`)
-  for the rest of the `dwellDurationPerPoint` window (default 2s total per point).
-- Computes the rotation needed to align the averaged raw direction with the TRUE direction to
-  that known point (`Quaternion.FromToRotation`), and blends all 5 per-point rotations into
-  one `CalibrationCorrection` via incremental Slerp (running-average approximation,
-  appropriate since all 5 corrections should represent one consistent underlying bias).
-- `IsCalibrated` flips true and the marker hides once all 5 points are done.
+**File**: `Assets/Scripts/CalibrationManager.cs`. Lives in its own scene (`Calibration.unity`,
+own copy of the XR rig), runs before `EyeTrackingManager` even exists - reads `PXR_EyeTracking`
+directly, no dependency on `EyeTrackingManager` at any point during calibration itself.
 
-**`EyeTrackingManager.cs` changes**:
-- Added `RawGazeOriginWorld`/`RawGazeVectorWorld` public read-only properties, exposing the
-  UNCORRECTED world-space gaze data each frame for `CalibrationManager` to sample from.
-- Added optional `calibrationManager` reference (Inspector-assigned). If assigned, its
-  `CalibrationCorrection` quaternion is applied to the gaze DIRECTION (not origin) every
-  frame before it's used for `SpotLight` rotation and `GazeTargetControl` (hit detection,
-  heatmap stamping, dwell tracking all inherit the correction automatically, since they all
-  go through the same corrected vector). Safe/backward-compatible if left unassigned -
-  falls back to raw uncorrected data exactly like before this feature existed.
+**Phase 1 - Calibrating (5 training points)**:
+- Marker shown at 5 known positions (center + 4 corners, `calibrationPointLocalOffsets`).
+- Per point: settle (`settleTimeBeforeSampling`, 1s) → average raw gaze samples for the rest of
+  `dwellDurationPerPoint` (2s total) → `Quaternion.FromToRotation(avgRawDir, trueDir)` →
+  `Quaternion.Angle` gives that point's correction angle (the bias).
+- Reject if correction angle > `maxPlausiblePointCorrectionDegrees` (20°, heuristic - "were they
+  even looking at the marker"). Accepted points blended into `CalibrationCorrection` via
+  incremental `Quaternion.Slerp`.
+- **Gate 1**: needs all 5/5 points accepted. Fail → red "Calibration Failed - Retrying...",
+  `RetryCalibration()` resets everything, restarts from point 1.
 
-**Still needed (Editor setup)**:
-1. Create a `CalibrationManager` GameObject, position it at the player start location facing
-   forward (or just reference the XR Origin's forward direction appropriately).
-2. Create a visible calibration marker object (e.g. a small sphere), assign it to the
-   `Calibration Marker` field.
-3. Add the `Calibration Manager` component, assign `Eye Tracking Manager` (drag in the scene's
-   `EyeTrackingManager` object) and `Calibration Marker` fields.
-4. On `EyeTrackingManager`'s own component, assign its new `Calibration Manager` field to
-   point at this new object, so the correction actually gets applied.
-5. Tune `calibrationPointLocalOffsets` in the Inspector if the default 5-point spread doesn't
-   match the scene's scale/distance well.
+**Phase 2 - Validating (2 held-out points, added today)**:
+- On gate 1 pass, `CalibrationCorrection` is FROZEN. Marker shows 2 new points
+  (`validationPointLocalOffsets`) never used in phase 1.
+- Same dwell/settle/sample + 20° rejection gate, but instead of blending, `RecordValidationResidual`
+  applies the frozen correction to the raw gaze and measures `Vector3.Angle(correctedDir, trueDir)`
+  - the RESIDUAL (error still left after correction), averaged over both points.
+- This residual is the number that matters - a proper train/test split, not the optimistic
+  training-set bias. Both numbers logged side by side in `adb logcat` for comparison.
+
+**Scoring**: residual → `GetBiasQualityLabel` (Excellent ≤1.5°, Good ≤3°, Fair ≤5°, Poor >5°,
+via `PoorBiasCeilingDegrees`/`GoodBiasCeilingDegrees` constants) + `GetBiasQualityPercent`
+(linear, 0°=100%, 5°=0%). **Bands are a judgment call**, not independently validated for this
+device - looked into citing published VR eye-tracker accuracy research to back them, found the
+sources weren't good enough to lean on (one was just a manufacturer spec, never independently
+verified; the other was a real measurement but n=11 and different hardware, a Tobii-based
+headset, not Pico's own sensors) - removed the citations rather than keep weak sourcing dressed
+up as evidence.
+
+**Gate 2 (added today)**: quality now gates progression too, not just informational. Only
+Excellent/Good (≤3°) proceeds to `LoadMainScene()`. Fair/Poor → orange "Calibration Quality Too
+Low - Retrying...", `RetryCalibration()` fires again. NO retry cap by design - user confirmed
+this is intentional (precision-sensitive use case, an accurate result matters more than a fast
+one), not something to add later.
+
+**Bug fixed today**: `RetryCalibration()` wasn't resetting `IsCalibrated` back to `false` - was
+harmless before (retry only ever followed a phase-1 failure, where `IsCalibrated` hadn't been
+set true yet), became a real bug once phase-2 quality-gate retries could happen *after*
+`IsCalibrated = true` was already set.
+
+**Verified on-device today**: captured real `"Poor (0%) - Retrying"` and `"Excellent (85%) -
+Passed"` screenshots, confirming the gate genuinely rejects/accepts correctly, not just in
+theory. Cropped versions in `Docs/Screenshots/`, embedded in README.
+
+**Handoff unchanged**: `CalibrationCorrection`/`IsCalibrated` still `static`, reset every launch
+(no persistence - multiple people may share the headset). `EyeTrackingManager.cs` reads
+`CalibrationManager.CalibrationCorrection` directly by class name once the main scene loads.
 
 **`EyeTrackingManager.cs`**:
 - `dwellTimes` (`Dictionary<string, float>`) - accumulates seconds gazed per object, but
@@ -210,6 +228,98 @@ Flow: hook (data) → texel-density sizing → StampAt (painting) → overlay ma
 - SDK bug: `PXR_BuildProcessor.cs` writes a manifest meta-data value as the literal string
   `"false/true"` instead of an actual bool. // not the blocker
 
-## Next (focus: standalone eye tracking only, main project crash on hold)
-- [ ] Add real runtime permission request to demo (so it works without manual `adb grant`).
-- [ ] Build standalone gaze-display feature (numeric readout + reticle).
+## Repo
+- Fork pushed to personal GitHub: `github.com/KevineMusoni/EyeTrackingDemo-Pico4`.
+- `origin` = personal repo (push access). `upstream` = `picoxr/EyeTrackingDemo` (original
+  sample, read-only, kept around in case future upstream updates are worth pulling).
+- `.gitignore` updated - `ET_*_BackUpThisFolder.../ET_*_BurstDebugInformation.../UserSettings/
+  /.vscode/` weren't being ignored before (would have bloated the repo with per-session Burst
+  debug output and per-machine editor state).
+- README overhauled: fork attribution, "what was added" summary up top, plain-language +
+  technical explanation of calibration, Mermaid flowchart, geometry diagram
+  (`Docs/calibration-geometry.svg`), real on-device screenshots (not Pico's originals) for
+  calibration pass/fail, the heatmap, and avatar eye-openness. Collapsible sections removed
+  (were easy to miss), em dashes removed project-wide, unreliable research citations removed.
+
+## Calibration - review feedback (supersedes the speculative list below)
+
+**Verdict on today's work**: holdout validation + freezing the correction before testing is a
+good improvement, confirmed as the right direction.
+
+**Priorities, in order:**
+1. Fix PXR call return-value/validity checking - failed reads currently return zero-valued data
+   that may be getting counted as a valid sample (potential real bug, not just a nice-to-have). // CalibrationManager.cs:164-166:return bool and capture it.  (GetHeadPosMatrix, GetCombineEyeGazeVector, GetCombineEyeGazePoint, and GetCombinedEyePoseStatus which isn't called at all right now), and if any of them come back false, skip that frame entirely.
+   Tested: added a counter/log line (e.g., "rejected N invalid reads this session")
+2. Move the correction into head/camera-local coordinates, applied *before* converting to worldspace - current world-space approach may not hold up across head movement or XR rig changes.
+// done -> CalibrationCorrectionLocal (ln 111), lastValidHeadPoseMatrix = headPoseMatrix (tracked per successful frame)
+3. Validation must require ALL points to have sufficient data - no training-data fallback (this
+   directly contradicts the fallback addimed in `HandleValidationComplete`, revisit that).
+   // edited so that now it requires 2/2 not just > 0.
+
+4. Add 4-point validation (top/bottom/left/right) instead of 2 same-diagonal points, plus
+   per-point precision (not just bias).
+   //done
+
+
+5. Compare corrected vs uncorrected performance during validation - if the correction doesn't
+   actually help, fall back to PICO's raw gaze output rather than applying a bad correction.
+   //done -> validationUncorrectedResidualSum (reuses rawAngle). Falls back to identity if
+   corrected residual isn't better than uncorrected.
+
+
+
+**Full list of changes requested:**
+- [x] Validity-check every PXR eye-tracking call's return value, not just assume success.
+  // done -> GazeReading.TryReadRawGaze
+- [x] Fit/apply the correction in head-local coordinates, not world space.
+  // done -> CalibrationCorrectionLocal
+- [x] Validation requires every point valid - remove the training-data fallback.
+  // done -> requires validationPointLocalOffsets.Length/Length, no fallback
+- [x] Replace the 2 same-diagonal validation points with 4 points (top/bottom/left/right).
+  // done -> item 4
+- [x] Keep individual per-point samples (not just their average) - needed to compute PRECISION
+  (consistency) separately from bias (accuracy), not bias alone.
+  // done -> currentPointRawSamplesLocal, item 4
+- [ ] Gate on both the mean AND the worst-performing point - a bad region of the visual field
+  shouldn't be hideable behind a good average.
+- [x] Compare corrected vs uncorrected gaze during validation; keep PICO's raw output if the
+  correction doesn't actually improve things.
+  // done -> item 5
+- [ ] Replace the sequential `Slerp` blend with a simultaneous least-squares rotation fit
+  (once coordinate-frame/validation issues above are fixed - Slerp can stay temporarily).
+- [ ] Adaptive sampling instead of a fixed 2s dwell - more validation coverage, less total time.
+- [ ] Retry only the failed point, not the whole 5/7-point sequence - plus sensible retry limits
+  and headset-fit guidance (this changes the "no cap, restart everything" design from today).
+- [ ] Remove the on-screen percentage entirely - called out as arbitrary/misleading (e.g. "3° =
+  Good but shown as 40%"). Replace with a plain "Tracking ready" message; keep degree
+  measurements in logs only, not user-facing.
+- [ ] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
+  "Position Guide" stage (see earlier research this session on `GetLeftEyePositionGuide`/
+  `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise,
+  would need on-device testing).
+- [ ] Keep a separate, optional detailed "Full Validation" mode: more points, longer sampling,
+  separate left/right-eye quality metrics.
+
+**Target: two modes, same underlying math:**
+1. **Rapid/investor mode** - ~8-12 seconds, 5 calibration points + 4 validation points.
+2. **Full Validation mode** - more points/samples, detailed per-point bias + precision + validity.
+
+**Reference data point**: calibration success criteria was **≤3° bias AND
+≤1° precision** - notably a two-part criterion (both bias and precision), whereas today's system
+only measures bias/residual, precision isn't tracked at all yet (see "keep individual samples"
+item above - that's the prerequisite for computing precision at all).
+
+## Next (for next session, non-calibration - unaffected by the above)
+
+- [ ] Add a real runtime permission request for `com.picovr.permission.EYE_TRACKING` - the app
+      still relies on manually granting it via `adb shell pm grant` (see "Eye tracking not
+      working" above); it should request it itself so a fresh install doesn't need that step.
+- [ ] Heatmap perf: `MeshGazeHeatmap.StampAt()` still uses `GetPixel`/`SetPixel` per stamp,
+      fine for prototyping but would need `SetPixels32`/a compute shader if this becomes a real
+      (not test-only) feature.
+- [ ] 3D Models README section still uses Pico's original external screenshot - none of today's
+      captures show the actual focus-highlight behavior (`ETCube.IsFocused()`/`UnFocused()`,
+      a solid color swap - different from the heatmap's gradual color buildup). Low priority,
+      user said not necessary for now.
+- [ ] Main Surgical VR project crash (SIGSEGV, foveation conflict) still on hold - not touched
+      today, revisit only when explicitly asked to come back to it.

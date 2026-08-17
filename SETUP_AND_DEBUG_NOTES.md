@@ -254,7 +254,7 @@ good improvement, confirmed as the right direction.
 // done -> CalibrationCorrectionLocal (ln 111), lastValidHeadPoseMatrix = headPoseMatrix (tracked per successful frame)
 3. Validation must require ALL points to have sufficient data - no training-data fallback (this
    directly contradicts the fallback addimed in `HandleValidationComplete`, revisit that).
-   // edited so that now it requires 2/2 not just > 0.
+   // edited so that now it requires 4/4 not just > 0.
 
 4. Add 4-point validation (top/bottom/left/right) instead of 2 same-diagonal points, plus
    per-point precision (not just bias).
@@ -280,13 +280,16 @@ good improvement, confirmed as the right direction.
 - [x] Keep individual per-point samples (not just their average) - needed to compute PRECISION
   (consistency) separately from bias (accuracy), not bias alone.
   // done -> currentPointRawSamplesLocal, item 4
-- [ ] Gate on both the mean AND the worst-performing point - a bad region of the visual field
+- [x] Gate on both the mean AND the worst-performing point - a bad region of the visual field
   shouldn't be hideable behind a good average.
+  // done -> validationWorstResidualDegrees, strict 3° ceiling on worst point too
 - [x] Compare corrected vs uncorrected gaze during validation; keep PICO's raw output if the
   correction doesn't actually improve things.
   // done -> item 5
 - [ ] Replace the sequential `Slerp` blend with a simultaneous least-squares rotation fit
   (once coordinate-frame/validation issues above are fixed - Slerp can stay temporarily).
+  // The problem: the way the 5 training points get combined into one final correction is not mathematically optimal.
+
 - [ ] Adaptive sampling instead of a fixed 2s dwell - more validation coverage, less total time.
 - [ ] Retry only the failed point, not the whole 5/7-point sequence - plus sensible retry limits
   and headset-fit guidance (this changes the "no cap, restart everything" design from today).

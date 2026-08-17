@@ -119,7 +119,31 @@ is frozen and the marker moves through 4 more points - top, bottom, left, right
 sits at the same ~16.26° angular distance from center as the training corners (same difficulty,
 just spent on one axis instead of split across two - derived, not copied, from
 `sqrt(0.5² + 0.3²) = 0.583 = 2·tan(16.26°)`), and together they cover the horizontal/vertical axes
-the old 2-point diagonal pair never directly tested. Each one first passes through the *same* 20°
+the old 2-point diagonal pair never directly tested.
+
+*Why staying under ~20-25° matters, not just "why 16.26°":* every point's fitting/measurement
+depends on the head staying still while only the eyes move to it - if a point sits far enough off
+center that a user's head unconsciously starts turning toward it too, that assumption silently
+breaks for that point's data. Published oculomotor research on eye-head coordination gives a real
+number for this: gaze shifts start recruiting head movement (not just the eyes) once amplitude
+passes roughly 20-25°, based on the classic effective-oculomotor-range (EOMR) work by Guitton &
+Volle (1987), as summarized in
+[Freedman, "Coordination of the Eyes and Head during Visual Orienting" (2008)](https://pmc.ncbi.nlm.nih.gov/articles/PMC2605952/):
+*"As gaze shift amplitude increased beyond 20°, saccade amplitude continued to increase linearly,
+but the slope of the eye amplitude - gaze amplitude relationship was less than 1"* - i.e. beyond
+that point, the head starts doing part of the work. This project's ~16.26° figure wasn't chosen
+with that research in mind (it was derived purely to match training-corner difficulty, see above),
+but it happens to sit comfortably under this real, independently-sourced safety margin - a
+reassuring cross-check, not the original justification. Two caveats worth being honest about: the
+20-25° figure is specifically studied for *horizontal* gaze shifts (the same source notes vertical/
+oblique eye-head coordination is less studied, so applying it to the up/down/diagonal points here
+is an extrapolation), and it marks where head involvement *starts*, not a hard wall - the same
+paper separately notes eye-only saccades functionally saturate around ~35°, with the eye's hard
+anatomical rotation limit around ~45° (rarely reached). The conservative ~20-25° onset figure is
+the relevant one here, since even partial, early head involvement during a ~1-2 second dwell sample
+would be enough to quietly bias that point's data.
+
+Each one first passes through the *same* 20°
 "were-they-looking-at-it" rejection check the training points use (checked on the raw, uncorrected
 angle - a glance-away during validation shouldn't corrupt the very number this feature exists to
 make honest); if accepted, `RecordValidationResidual` applies the now-frozen correction to that
@@ -147,6 +171,15 @@ average isn't actually better than the uncorrected average, the fitted correctio
 `CalibrationCorrectionLocal` resets to identity (PICO's raw output) and the reported/gated quality
 number switches to the uncorrected residual - so the quality label, percentage, and pass/fail gate
 always reflect whichever result is actually about to ship, not an assumed-good fitted correction.
+
+**A good average can hide one bad region.** Three excellent points and one bad one can still
+average out to "Good" overall - the mean has no way to flag that a specific direction (say, the
+right side of the field) is unreliable while the rest is fine. So the pass/fail gate now checks
+two things, not one: the mean residual (as before) AND the single WORST-performing point among the
+4, both against the same 3° "Good" ceiling. Every point has to independently qualify as Good, not
+just the average of all 4 - a bad region can no longer hide behind three good ones. `adb logcat`
+reports which point index was worst and its value on every validation run, whether it passed or
+failed the check, for diagnosability.
 
 That residual error becomes the label + 0-100% score
 (`GetBiasQualityLabel`/`GetBiasQualityPercent`, linearly mapped from 0° = 100% to the 5° "Poor"

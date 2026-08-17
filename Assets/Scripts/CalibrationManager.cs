@@ -172,6 +172,17 @@ public class CalibrationManager : MonoBehaviour
     // noise rather than real, persistent tracking bias, applying it can leave gaze WORSE off
     // than doing nothing. This is what lets that case be caught instead of assumed away.
     private float validationUncorrectedResidualSum = 0f;
+    // ADDED: the single WORST point's residual/index, not just the average across all 4. A good
+    // average can hide one badly-tracked region of the visual field (e.g. 3 points at 0.5° and
+    // one at 8° still averages to a "Good" 2.4°) - gating on this too means a bad region can't
+    // hide behind good ones. Tracked separately for corrected vs uncorrected, same reason
+    // validationResidualSum/validationUncorrectedResidualSum are separate - whichever result
+    // actually ships (see the correctionHelps fallback in HandleValidationComplete) determines
+    // which "worst" value the gate should actually check.
+    private float validationWorstResidualDegrees = 0f;
+    private int validationWorstResidualPointIndex = -1;
+    private float validationWorstUncorrectedResidualDegrees = 0f;
+    private int validationWorstUncorrectedResidualPointIndex = -1;
 
     // ADDED: which stage of the flow Update() is currently driving. Calibrating fits
     // CalibrationCorrectionLocal from the 5 training points; Validating measures accuracy against
@@ -303,6 +314,10 @@ public class CalibrationManager : MonoBehaviour
             // approximation for averaging multiple rotations without needing a full
             // quaternion-averaging algorithm (appropriate here since all 5 corrections should
             // be small, broadly similar rotations representing one consistent tracking bias).
+            
+            // what is mathematically best possible way for correction out of the 5 training points -  shipped correction is measurably worse than the best rotation the same raw data could have produced  (0.9°-4° range)
+
+
             CalibrationCorrectionLocal = Quaternion.Slerp(CalibrationCorrectionLocal, pointCorrection, 1f / (pointsCollected + 1));
         }
 
@@ -364,6 +379,18 @@ public class CalibrationManager : MonoBehaviour
         validationResidualSum += residualAngle;
         validationPrecisionSum += precisionDegrees;
         validationUncorrectedResidualSum += rawAngle;
+        // ADDED: track the worst point (by value AND index) alongside the sums above - see
+        // validationWorstResidualDegrees' field comment for why the average alone isn't enough.
+        if (residualAngle > validationWorstResidualDegrees)
+        {
+            validationWorstResidualDegrees = residualAngle;
+            validationWorstResidualPointIndex = currentPointIndex;
+        }
+        if (rawAngle > validationWorstUncorrectedResidualDegrees)
+        {
+            validationWorstUncorrectedResidualDegrees = rawAngle;
+            validationWorstUncorrectedResidualPointIndex = currentPointIndex;
+        }
         validationPointsMeasured++;
     }
 
@@ -459,12 +486,20 @@ public class CalibrationManager : MonoBehaviour
         // the fitted correction and fall back to PICO's raw output instead. Reassigning
         // averageResidualDegrees here means the quality label/percent/gate logic below always
         // reflects whichever result is actually about to ship, not always the fitted one.
+        // ADDED: mirrors the averageResidualDegrees reassignment below - the worst-point value
+        // used for the gate has to reflect the SAME result (corrected or fallback) that
+        // averageResidualDegrees ends up reflecting, not always the corrected one.
+        float worstResidualDegrees = validationWorstResidualDegrees;
+        int worstResidualPointIndex = validationWorstResidualPointIndex;
+
         bool correctionHelps = averageResidualDegrees < averageUncorrectedResidualDegrees;
         if (!correctionHelps)
         {
             Debug.Log($"[CalibrationManager] Correction REJECTED - corrected residual ({averageResidualDegrees:F1}°) not better than raw uncorrected gaze ({averageUncorrectedResidualDegrees:F1}°). Falling back to PICO's raw gaze output.");
             CalibrationCorrectionLocal = Quaternion.identity;
             averageResidualDegrees = averageUncorrectedResidualDegrees;
+            worstResidualDegrees = validationWorstUncorrectedResidualDegrees;
+            worstResidualPointIndex = validationWorstUncorrectedResidualPointIndex;
         }
 
         // MOVED here from right after averageResidualDegrees was first computed - must run
@@ -478,13 +513,18 @@ public class CalibrationManager : MonoBehaviour
         // calibrating at all, so it's treated the same as a data-validity failure: retry from
         // scratch. Deliberately uncapped (no max attempts) - the goal is an actually-good
         // calibration, not a best-effort one after N tries; if this proves too strict in
-        // practice (e.g. genuinely stuck retrying), that's a signal to revisit the bands
+        // practice (e.g. stuck retrying), that's a signal to revisit the bands
         // themselves via the validation data now being collected, not to add a silent cap.
-        bool qualityAcceptable = averageResidualDegrees <= GoodBiasCeilingDegrees;
+        // ADDED: gate on the WORST point too, not just the mean - strict, reuses the same
+        // GoodBiasCeilingDegrees (3°) the mean is gated on, so every individual point has to
+        // independently qualify as "Good," not just the average of all 4. See
+        // validationWorstResidualDegrees' field comment for why the mean alone isn't enough.
+        bool worstPointAcceptable = worstResidualDegrees <= GoodBiasCeilingDegrees;
+        bool qualityAcceptable = averageResidualDegrees <= GoodBiasCeilingDegrees && worstPointAcceptable;
 
         if (qualityAcceptable)
         {
-            Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}° - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
+            Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}° - worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°) - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
             // MODIFIED: on-screen text shows the plain-language label plus a percentage (e.g.
             // "Good (82%)") - meant to be read by non-technical users without needing degrees
             // explained; the precise degree value is still in the log line above.
@@ -495,7 +535,7 @@ public class CalibrationManager : MonoBehaviour
         }
         else
         {
-            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}°, training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
+            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}°, worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°{(worstPointAcceptable ? "" : " - FAILED worst-point gate")}), training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
             ShowResult($"Calibration Quality Too Low - {qualityLabel} ({qualityPercent}%) - Retrying...", GetBiasQualityColor(averageResidualDegrees));
             Invoke(nameof(RetryCalibration), resultDisplayDuration);
         }
@@ -572,6 +612,10 @@ public class CalibrationManager : MonoBehaviour
         validationResidualSum = 0f;
         validationPrecisionSum = 0f;
         validationUncorrectedResidualSum = 0f;
+        validationWorstResidualDegrees = 0f;
+        validationWorstResidualPointIndex = -1;
+        validationWorstUncorrectedResidualDegrees = 0f;
+        validationWorstUncorrectedResidualPointIndex = -1;
         validationPointsMeasured = 0;
         pointTimer = 0f;
         sampleSum = Vector3.zero;

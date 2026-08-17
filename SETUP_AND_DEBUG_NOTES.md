@@ -286,16 +286,32 @@ good improvement, confirmed as the right direction.
 - [x] Compare corrected vs uncorrected gaze during validation; keep PICO's raw output if the
   correction doesn't actually improve things.
   // done -> item 5
-- [ ] Replace the sequential `Slerp` blend with a simultaneous least-squares rotation fit
+- [x] Replace the sequential `Slerp` blend with a simultaneous least-squares rotation fit
   (once coordinate-frame/validation issues above are fixed - Slerp can stay temporarily).
-  // The problem: the way the 5 training points get combined into one final correction is not mathematically optimal.
+  // done -> AverageQuaternions (Markley's method, 4x4 accumulator + power iteration).
+  acceptedPointCorrections collected per-point, combined once in HandleCalibrationComplete.
 
-- [ ] Adaptive sampling instead of a fixed 2s dwell - more validation coverage, less total time.
-- [ ] Retry only the failed point, not the whole 5/7-point sequence - plus sensible retry limits
-  and headset-fit guidance (this changes the "no cap, restart everything" design from today).
-- [ ] Remove the on-screen percentage entirely - called out as arbitrary/misleading (e.g. "3° =
-  Good but shown as 40%"). Replace with a plain "Tracking ready" message; keep degree
+- [x] Adaptive sampling instead of a fixed 2s dwell - more validation coverage, less total time.
+  // done -> live running precision check in Update(), stableFrameCount. Point advances early
+  once precision <=0.5deg for 10 consecutive frames; dwellDurationPerPoint stays as timeout
+  ceiling. Untuned starting values.
+
+- [x] Retry only the failed point, not the whole 5/7-point sequence and headset-fit guidance (this changes the "no cap, restart everything" design).
+  // done -> per-point retry: RecordCurrentPointCorrection/RecordValidationResidual return
+  bool, AdvanceToNextPoint(bool) only advances index on success. Kept no-cap (user confirmed
+  again) - fit guidance (perPointFitGuidanceThreshold=3,
+  fullSequenceFitGuidanceThreshold=3), never stops retrying. HandleCalibrationComplete/
+  HandleValidationComplete's old failure branches removed as dead code (now unreachable by
+  construction). RetryCalibration only fires for the quality-gate case now. ex: if closed eye at one point, only the failed point will repeat/ fail.
+
+- [x] Remove the on-screen percentage entirely - called out as arbitrary/misleading Replace with a plain "Tracking ready" message; keep degree
   measurements in logs only, not user-facing.
+  // done -> pass message is now "Tracking ready" (was "{label} ({percent}%)"), retry message
+  is "Calibration Quality Too Low - Retrying..." (dropped label+percent too, opt 1). Both
+  qualityLabel/qualityPercent still computed and logged in adb logcat, only the on-screen
+  ShowResult calls changed. Screenshots (Docs/Screenshots/calibration-*.jpeg) now stale, due
+  for a recapture.
+  
 - [ ] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
   "Position Guide" stage (see earlier research this session on `GetLeftEyePositionGuide`/
   `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise,

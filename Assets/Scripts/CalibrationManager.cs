@@ -13,8 +13,9 @@ using System.Collections.Generic;
 // the field of view). At each point, the user just looks at it naturally - after a short
 // settle time, raw gaze samples are averaged, and the rotation needed to make that raw
 // direction match the TRUE direction to the known point is recorded. The 5 per-point
-// corrections are blended into one final CalibrationCorrectionLocal quaternion, which
-// EyeTrackingManager (in the main scene, once loaded) applies to its own gaze vector.
+// corrections are combined into one final CalibrationCorrectionLocal quaternion via a
+// simultaneous least-squares fit (AverageQuaternions, Markley's method - see its comment),
+// which EyeTrackingManager (in the main scene, once loaded) applies to its own gaze vector.
 //
 // HEAD-LOCAL, NOT WORLD SPACE: the fit and blend above happen entirely in head-local
 // coordinates (the raw gaze vector's own natural space), never transformed to world space
@@ -98,21 +99,53 @@ public class CalibrationManager : MonoBehaviour
     };
 
     [Header("Timing")]
-    // Total time spent on each point before moving to the next.
+    // MODIFIED: no longer a fixed duration every point sits for - now a TIMEOUT ceiling. Most
+    // points converge (see [Header("Adaptive Sampling")] below) well before this, and advance
+    // early; this only matters as a fallback if a point never stabilizes (noisy tracking).
     [SerializeField] private float dwellDurationPerPoint = 2f;
     // Only samples raw gaze data during the LAST portion of the dwell window, letting the
     // initial saccade (the fast eye movement jumping to the new point) settle first -
     // sampling too early would average in the "still moving toward the target" data.
     [SerializeField] private float settleTimeBeforeSampling = 1f;
-    // How long the "Calibration Passed"/"Calibration Failed" message stays on screen before
-    // the scene transitions (pass) or the 5-point sequence restarts (fail).
+    // MODIFIED: "Calibration Failed" no longer exists as an outcome (see HandleCalibrationComplete -
+    // per-point retry means training can't reach a failed state anymore). Now just how long the
+    // "Calibration Passed"/"Calibration Quality Too Low" message stays on screen before the scene
+    // transitions (pass) or the whole 5+4-point sequence restarts (quality-gate fail).
     [SerializeField] private float resultDisplayDuration = 2f;
+
+    [Header("Adaptive Sampling")]
+    // ADDED: lets a point finish EARLY once its samples have visibly converged, instead of
+    // always waiting out the full dwellDurationPerPoint - most points settle in well under 2s
+    // (precision numbers logged elsewhere in this class are often under 1°), so a fixed window
+    // wastes time on already-stable points every single calibration run. Purely a time/UX
+    // improvement - doesn't change what data is considered valid, just how soon "enough" data
+    // is judged to have been collected. Uses the SAME angular-deviation-from-mean math as
+    // precisionDegrees elsewhere in this class, just computed live instead of only at the end.
+    // Starting values, not yet tuned against real device data - see README.
+    [SerializeField] private float convergencePrecisionDegrees = 0.5f;
+    // Below this many samples, the running precision estimate is too noisy on its own to trust
+    // (e.g. 1-2 samples are trivially "tightly clustered") - convergence isn't even checked yet.
+    [SerializeField] private int minSamplesBeforeConvergenceCheck = 5;
+    // Requires precision to stay under convergencePrecisionDegrees for this many CONSECUTIVE
+    // frames (not just one) before accepting convergence - guards against stopping early on a
+    // single lucky frame in an otherwise-still-settling or noisy sample window.
+    [SerializeField] private int minStableFramesToConverge = 10;
 
     [Header("Validation")]
     // A point's raw-to-true correction angle above this is treated as the user not actually
     // looking at the marker (distracted, looked elsewhere, blinked through the whole window)
     // rather than a genuine tracking bias this large - see RecordCurrentPointCorrection.
     [SerializeField] private float maxPlausiblePointCorrectionDegrees = 20f;
+
+    [Header("Fit Guidance")]
+    // ADDED: NOT a retry cap - calibration still retries indefinitely by design (see class
+    // comment). These are purely diagnostic nudges shown when
+    // retries pile up in a pattern that's a common symptom of headset FIT rather than a one-off
+    // glitch: either the SAME point failing repeatedly in a row, or the WHOLE sequence's
+    // measured quality failing repeatedly in a row. Neither ever stops or limits retrying -
+    // they only add a supplementary on-screen hint while retrying continues as normal.
+    [SerializeField] private int perPointFitGuidanceThreshold = 3;
+    [SerializeField] private int fullSequenceFitGuidanceThreshold = 3;
 
     // STATIC - see class comment above for why. Defaults to identity/false so that opening
     // the main scene directly (skipping calibration entirely, e.g. for a quick test in the
@@ -141,6 +174,21 @@ public class CalibrationManager : MonoBehaviour
     private Vector3 sampleSum = Vector3.zero;
     private int sampleCount = 0;
     private int pointsCollected = 0;
+    // ADDED: consecutive frames the running sample precision has stayed under
+    // convergencePrecisionDegrees - see that field's comment. Reset to 0 the moment precision
+    // exceeds the threshold on any frame, so only a genuinely STABLE run of good frames counts.
+    private int stableFrameCount = 0;
+    // ADDED: consecutive times the CURRENT point specifically has failed and been retried (not the whole sequence) - drives perPointFitGuidanceThreshold. Reset on that point's success.
+    private int currentPointRetryCount = 0;
+    // ADDED: consecutive times the WHOLE sequence has been restarted via RetryCalibration due
+    // to a quality-gate failure (the only remaining reason RetryCalibration gets called - see
+    // its comment) - drives fullSequenceFitGuidanceThreshold. Reset on eventual overall pass.
+    private int consecutiveFullRetries = 0;
+    // ADDED: each accepted training point's own individual correction, collected here instead of
+    // being blended in immediately - see AverageQuaternions for why fitting all 5 SIMULTANEOUSLY
+    // (once, after all are collected) is more correct than the old sequential Quaternion.Slerp
+    // chain (order-dependent, not a true least-squares combination of the 5 measurements).
+    private List<Quaternion> acceptedPointCorrections = new List<Quaternion>();
     // ADDED: raw per-sample directions collected during the CURRENT point's settle window,
     // alongside sampleSum/sampleCount above. sampleSum's running total is enough to compute the
     // MEAN direction, but not how spread out the individual samples were around that mean - that
@@ -248,30 +296,62 @@ public class CalibrationManager : MonoBehaviour
                 sampleSum += rawGazeVector;
                 sampleCount++;
                 currentPointRawSamplesLocal.Add(rawGazeVector);
+
+                // ADDED: live convergence check - same math as precisionDegrees elsewhere in
+                // this class (average angular deviation of each sample from the running mean),
+                // just computed every frame instead of only once at the end. See
+                // convergencePrecisionDegrees' field comment for why this lets a point finish
+                // early instead of always waiting out the full dwellDurationPerPoint.
+                if (sampleCount >= minSamplesBeforeConvergenceCheck)
+                {
+                    Vector3 runningMeanDirection = (sampleSum / sampleCount).normalized;
+                    float runningPrecisionDegrees = 0f;
+                    foreach (Vector3 sample in currentPointRawSamplesLocal)
+                    {
+                        runningPrecisionDegrees += Vector3.Angle(sample.normalized, runningMeanDirection);
+                    }
+                    runningPrecisionDegrees /= currentPointRawSamplesLocal.Count;
+
+                    stableFrameCount = runningPrecisionDegrees <= convergencePrecisionDegrees
+                        ? stableFrameCount + 1
+                        : 0;
+                }
             }
         }
 
-        if (pointTimer >= dwellDurationPerPoint)
+        // MODIFIED: a point now completes on EITHER the old fixed timeout OR early convergence
+        // (stableFrameCount reaching minStableFramesToConverge) - whichever happens first. See
+        // [Header("Adaptive Sampling")] for why.
+        bool dwellTimedOut = pointTimer >= dwellDurationPerPoint;
+        bool sampleConverged = stableFrameCount >= minStableFramesToConverge;
+        if (dwellTimedOut || sampleConverged)
         {
-            if (phase == Phase.Calibrating)
-            {
-                RecordCurrentPointCorrection(lastValidGazeOriginWorld, lastValidHeadPoseMatrix);
-            }
-            else
-            {
-                RecordValidationResidual(lastValidGazeOriginWorld, lastValidHeadPoseMatrix);
-            }
-            AdvanceToNextPoint();
+            // ADDED: visibility into whether/how much adaptive sampling actually saves - logs
+            // the real elapsed time for this point and why it ended, so time savings are
+            // directly observable in adb logcat rather than assumed.
+            string completionReason = sampleConverged ? "converged early" : "timed out";
+            Debug.Log($"[CalibrationManager] Point {currentPointIndex} {completionReason} after {pointTimer:F2}s (vs {dwellDurationPerPoint:F2}s fixed timeout).");
+
+            // MODIFIED: RecordCurrentPointCorrection/RecordValidationResidual now return
+            // if this point was actually accepted - AdvanceToNextPoint uses that to
+            // decide whether to move on or retry this SAME point, instead of always advancing.
+            bool pointSucceeded = phase == Phase.Calibrating
+                ? RecordCurrentPointCorrection(lastValidGazeOriginWorld, lastValidHeadPoseMatrix)
+                : RecordValidationResidual(lastValidGazeOriginWorld, lastValidHeadPoseMatrix);
+            AdvanceToNextPoint(pointSucceeded);
         }
     }
 
-    private void RecordCurrentPointCorrection(Vector3 gazeOriginWorld, Matrix4x4 headPose)
+    // MODIFIED: now returns whether the point was accepted - see AdvanceToNextPoint, which
+    // retries this SAME point on false instead of always moving to the next one.
+    private bool RecordCurrentPointCorrection(Vector3 gazeOriginWorld, Matrix4x4 headPose)
     {
         if (sampleCount == 0)
         {
             // Didn't get a sample window (e.g. eye tracking dropped out) - skip this
             // point rather than corrupting the blended correction
-            return;
+            Debug.Log($"[CalibrationManager] Point {currentPointIndex} dropout - no valid samples collected this window.");
+            return false;
         }
 
         // MODIFIED: averageRawDirection is now in LOCAL (head-relative) space, since sampleSum
@@ -301,38 +381,37 @@ public class CalibrationManager : MonoBehaviour
         if (pointCorrectionAngle > maxPlausiblePointCorrectionDegrees)
         {
             Debug.Log($"[CalibrationManager] Point {currentPointIndex} rejected - correction angle {pointCorrectionAngle:F1}° exceeds {maxPlausiblePointCorrectionDegrees}° threshold (likely not looking at the marker).");
-            return;
+            return false;
         }
 
-        if (pointsCollected == 0)
-        {
-            CalibrationCorrectionLocal = pointCorrection;
-        }
-        else
-        {
-            // Running-average blend across points via incremental Slerp - a standard simple
-            // approximation for averaging multiple rotations without needing a full
-            // quaternion-averaging algorithm (appropriate here since all 5 corrections should
-            // be small, broadly similar rotations representing one consistent tracking bias).
-            
-            // what is mathematically best possible way for correction out of the 5 training points -  shipped correction is measurably worse than the best rotation the same raw data could have produced  (0.9°-4° range)
+        // MODIFIED: no longer blended into CalibrationCorrectionLocal immediately - just
+        // collected here. All 5 accepted corrections get combined ONCE, simultaneously, in
+        // HandleCalibrationComplete once every point is done - see AverageQuaternions.
+        acceptedPointCorrections.Add(pointCorrection);
 
-
-            CalibrationCorrectionLocal = Quaternion.Slerp(CalibrationCorrectionLocal, pointCorrection, 1f / (pointsCollected + 1));
-        }
+        // ADDED: log each point's own individual correction as it's collected, so the 5 inputs
+        // going into AverageQuaternions can be checked against its final output (already logged
+        // in HandleValidationComplete's "Validation complete" line, CalibrationCorrectionLocal=)
+        // - a sanity check that the combined result actually sits among/close to the 5 individual
+        // answers, not something wildly different that would indicate a bug in the fit itself.
+        Debug.Log($"[CalibrationManager] Point {currentPointIndex} correction: {pointCorrection.eulerAngles} (angle={pointCorrectionAngle:F1}°) - accepted {acceptedPointCorrections.Count}/{calibrationPointLocalOffsets.Length} so far.");
 
         biasAngleSum += pointCorrectionAngle;
         pointsCollected++;
+        return true;
     }
 
     // ADDED: measures accuracy against a held-out point - one CalibrationCorrectionLocal was
-    // never fit on - instead of trusting the optimistic training-set number above.
-    private void RecordValidationResidual(Vector3 gazeOriginWorld, Matrix4x4 headPose)
+    // never fit on - instead of trusting the optimistic training-set number above. MODIFIED:
+    // now returns whether the point was accepted - see AdvanceToNextPoint, which retries this
+    // SAME point on false instead of always moving to the next one.
+    private bool RecordValidationResidual(Vector3 gazeOriginWorld, Matrix4x4 headPose)
     {
         if (sampleCount == 0)
         {
             // Dropout - skip this validation point rather than counting it as a bad measurement.
-            return;
+            Debug.Log($"[CalibrationManager] Validation point {currentPointIndex} dropout - no valid samples collected this window.");
+            return false;
         }
 
         // Same local-space treatment as RecordCurrentPointCorrection above - see its comments
@@ -348,7 +427,7 @@ public class CalibrationManager : MonoBehaviour
         if (rawAngle > maxPlausiblePointCorrectionDegrees)
         {
             Debug.Log($"[CalibrationManager] Validation point {currentPointIndex} rejected - raw angle {rawAngle:F1}° exceeds {maxPlausiblePointCorrectionDegrees}° threshold (likely not looking at the marker).");
-            return;
+            return false;
         }
 
         // Apply the ALREADY-FINALIZED CalibrationCorrectionLocal (fit only on the 5 training
@@ -392,15 +471,44 @@ public class CalibrationManager : MonoBehaviour
             validationWorstUncorrectedResidualPointIndex = currentPointIndex;
         }
         validationPointsMeasured++;
+        return true;
     }
 
-    private void AdvanceToNextPoint()
+    // MODIFIED: retries only the point that just failed, not the whole sequence - see class
+    // comment / [Header("Fit Guidance")]. Per-point transient state always resets (same as
+    // before), but currentPointIndex only advances on SUCCESS - a failed point leaves the
+    // marker right where it is and gets attempted again, with every earlier point's
+    // already-accepted data left completely untouched.
+    private void AdvanceToNextPoint(bool pointSucceeded)
     {
-        currentPointIndex++;
         pointTimer = 0f;
         sampleSum = Vector3.zero;
         sampleCount = 0;
         currentPointRawSamplesLocal.Clear();
+        stableFrameCount = 0;
+
+        if (pointSucceeded)
+        {
+            currentPointIndex++;
+            // ADDED: clear a fit-guidance hint that was showing for this now-resolved point.
+            if (currentPointRetryCount >= perPointFitGuidanceThreshold)
+            {
+                ShowResult(string.Empty, Color.white);
+            }
+            currentPointRetryCount = 0;
+        }
+        else
+        {
+            currentPointRetryCount++;
+            // ADDED: nudge, not a cap - the SAME point keeps retrying regardless; this just
+            // tells the user why, since one specific point being consistently unreachable
+            // while others succeed is a common symptom of headset fit, not something more
+            // silent retries alone are likely to fix.
+            if (currentPointRetryCount >= perPointFitGuidanceThreshold)
+            {
+                ShowResult("Having trouble tracking this point - try adjusting your headset fit", Color.yellow);
+            }
+        }
 
         Vector3[] points = CurrentPointSet;
         if (currentPointIndex >= points.Length)
@@ -419,57 +527,115 @@ public class CalibrationManager : MonoBehaviour
         calibrationMarker.position = transform.TransformPoint(points[currentPointIndex]);
     }
 
-    // ADDED: pass requires ALL 5 points to have collected real samples - pointsCollected only
-    // increments in RecordCurrentPointCorrection when sampleCount > 0 there, so a dropout during
-    // any point's sampling window (eye tracking glitch, blink, etc.) leaves it short of 5 and
-    // fails the check, rather than silently shipping a correction built from mostly-missing data.
+    // MODIFIED: no longer needs a pass/fail branch here. AdvanceToNextPoint only advances
+    // currentPointIndex on a SUCCESSFUL point (a failed point retries itself instead) - so
+    // reaching this method at all means every one of the 5 training points already succeeded,
+    // by construction. pointsCollected == calibrationPointLocalOffsets.Length is guaranteed.
     private void HandleCalibrationComplete()
     {
-        bool passed = pointsCollected >= calibrationPointLocalOffsets.Length;
+        // ADDED: compute the final correction ONCE, from all 5 accepted points simultaneously
+        // - see AverageQuaternions for why this replaces the old per-point Quaternion.Slerp
+        // blend that used to happen inside RecordCurrentPointCorrection.
+        CalibrationCorrectionLocal = AverageQuaternions(acceptedPointCorrections);
 
-        if (passed)
+        // The correction itself is now final - only the QUALITY SCORE still needs measuring,
+        // against the held-out validation points next.
+        IsCalibrated = true;
+        phase = Phase.Validating;
+        currentPointIndex = 0;
+        calibrationMarker.position = transform.TransformPoint(validationPointLocalOffsets[0]);
+    }
+
+    // ADDED: replaces the old per-point Quaternion.Slerp chain. Combines N individual rotation
+    // estimates into the single rotation that best represents all of them SIMULTANEOUSLY
+    // (Markley et al., "Averaging Quaternions", 2007) - unlike sequential Slerp, this is
+    // order-independent and actually minimizes the total angular distance to all N inputs at
+    // once, rather than approximating an average via a chain of pairwise blends where later
+    // points get progressively less influence purely due to processing order.
+    //
+    // Method: each quaternion is treated as a 4D unit vector (x,y,z,w). The 4x4 symmetric
+    // matrix M = sum(q_i * q_i^T) has the property that its DOMINANT eigenvector is the
+    // closest single rotation to all N inputs in a least-squares sense. That eigenvector is
+    // found here via power iteration (repeatedly multiply by M and renormalize) rather than a
+    // full eigendecomposition/SVD, since only the dominant eigenvector is needed and M is a
+    // small (4x4), well-conditioned matrix for this use case (5 similar rotations, not
+    // adversarial data) - power iteration converges quickly and reliably for that case.
+    private static Quaternion AverageQuaternions(List<Quaternion> quaternions)
+    {
+        if (quaternions.Count == 0)
         {
-            // The correction itself is now final - only the QUALITY SCORE still needs
-            // measuring, against the held-out validation points next.
-            IsCalibrated = true;
-            phase = Phase.Validating;
-            currentPointIndex = 0;
-            calibrationMarker.position = transform.TransformPoint(validationPointLocalOffsets[0]);
+            return Quaternion.identity;
         }
-        else
+        if (quaternions.Count == 1)
         {
-            calibrationMarker.gameObject.SetActive(false);
-            Debug.Log($"[CalibrationManager] Calibration FAILED - only {pointsCollected}/{calibrationPointLocalOffsets.Length} points collected valid data. Retrying.");
-            ShowResult("Calibration Failed - Retrying...", Color.red);
-            phase = Phase.Finished;
-            Invoke(nameof(RetryCalibration), resultDisplayDuration);
+            return quaternions[0];
         }
+
+        // q and -q represent the SAME rotation but would partially cancel out in the sum below
+        // if left in opposite hemispheres - flip each one to match the first quaternion's sign.
+        Vector4 reference = QuaternionToVector4(quaternions[0]);
+        float[,] accumulator = new float[4, 4];
+        foreach (Quaternion q in quaternions)
+        {
+            Vector4 v = QuaternionToVector4(q);
+            if (Vector4.Dot(v, reference) < 0f)
+            {
+                v = -v;
+            }
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 4; col++)
+                {
+                    accumulator[row, col] += v[row] * v[col];
+                }
+            }
+        }
+
+        // Power iteration - starts from the reference quaternion (already a reasonable guess,
+        // close to the true answer for similar input rotations like these), and converges
+        // within a handful of iterations for well-conditioned data.
+        Vector4 estimate = reference;
+        for (int iteration = 0; iteration < 30; iteration++)
+        {
+            Vector4 next = Vector4.zero;
+            for (int row = 0; row < 4; row++)
+            {
+                float sum = 0f;
+                for (int col = 0; col < 4; col++)
+                {
+                    sum += accumulator[row, col] * estimate[col];
+                }
+                next[row] = sum;
+            }
+            estimate = next.normalized;
+        }
+
+        return Vector4ToQuaternion(estimate);
+    }
+
+    private static Vector4 QuaternionToVector4(Quaternion q)
+    {
+        return new Vector4(q.x, q.y, q.z, q.w);
+    }
+
+    private static Quaternion Vector4ToQuaternion(Vector4 v)
+    {
+        return new Quaternion(v.x, v.y, v.z, v.w);
     }
 
     // ADDED: the quality score shown to the user is now based on validationResidualSum (the  train/test-split number), not biasAngleSum (the optimistic training-set number,
     // still logged below for comparison).
 
+    // MODIFIED: no longer needs an "incomplete" check here either, same reasoning as
+    // HandleCalibrationComplete - AdvanceToNextPoint only advances on a successful point, so
+    // validationPointsMeasured == validationPointLocalOffsets.Length is guaranteed by the time
+    // this method is reached. The ONLY way a full calibration retry (RetryCalibration) can
+    // still happen from here now is the quality gate below - a real train/test-split accuracy
+    // problem with the fitted correction itself, not any single point being unusable.
     private void HandleValidationComplete()
     {
         phase = Phase.Finished;
         calibrationMarker.gameObject.SetActive(false);
-
-        // MODIFIED: requires a COMPLETE validation set - no partial credit, no fallback.
-        // Previously: fell back to the (optimistic) training-set bias if EVERY validation point
-        // failed, and silently accepted a result built from just ONE point if only some failed
-        // - both undermine the whole point of an independent, held-out accuracy check. Now,
-        // anything short of every validation point succeeding is treated as a failure and
-        // retried, the same as a training-data failure.
-
-        // so the comparison is against validationPointLocalOffsets.Length (currently 4) instead of the old > 0 check, so e.g. 3/4 now fails the same as 0/4.
-        bool validationComplete = validationPointsMeasured == validationPointLocalOffsets.Length;
-        if (!validationComplete)
-        {
-            Debug.Log($"[CalibrationManager] Validation INCOMPLETE - only {validationPointsMeasured}/{validationPointLocalOffsets.Length} validation points collected valid data. Retrying.");
-            ShowResult("Calibration Validation Incomplete - Retrying...", Color.red);
-            Invoke(nameof(RetryCalibration), resultDisplayDuration);
-            return;
-        }
 
         float averageResidualDegrees = validationResidualSum / validationPointsMeasured;
         float averageTrainingBiasDegrees = biasAngleSum / pointsCollected;
@@ -525,18 +691,39 @@ public class CalibrationManager : MonoBehaviour
         if (qualityAcceptable)
         {
             Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}° - worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°) - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
-            // MODIFIED: on-screen text shows the plain-language label plus a percentage (e.g.
-            // "Good (82%)") - meant to be read by non-technical users without needing degrees
-            // explained; the precise degree value is still in the log line above.
-            ShowResult($"Calibration Passed - {qualityLabel} ({qualityPercent}%)", GetBiasQualityColor(averageResidualDegrees));
+            // MODIFIED: dropped the label+percent from the on-screen message - the percentage
+            // was a linear 0deg=100%/5deg=0% mapping unrelated to the actual pass/fail
+            // semantics, so a genuine PASS could show a confusingly low number (e.g. exactly
+            // 3deg, the pass threshold itself, displayed as 40%). qualityLabel/qualityPercent
+            // are still computed and logged above for anyone reading adb logcat - this only
+            // changes what the user sees on-screen. Color still reflects pass/fail (green here).
+            ShowResult("Tracking ready", GetBiasQualityColor(averageResidualDegrees));
+            // Reset the full-sequence fit-guidance counter on an eventual pass.
+            consecutiveFullRetries = 0;
             // MODIFIED: delayed via Invoke (was immediate) so the pass message is actually
             // visible before the scene transitions.
             Invoke(nameof(LoadMainScene), resultDisplayDuration);
         }
         else
         {
-            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}°, worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°{(worstPointAcceptable ? "" : " - FAILED worst-point gate")}), training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
-            ShowResult($"Calibration Quality Too Low - {qualityLabel} ({qualityPercent}%) - Retrying...", GetBiasQualityColor(averageResidualDegrees));
+            // This is the only path that calls RetryCalibration (a full restart) - see HandleValidationComplete's class comment. Tracked here (not a
+            // cap) purely to drive fullSequenceFitGuidanceThreshold below.
+            consecutiveFullRetries++;
+            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying (consecutive full retries={consecutiveFullRetries}). Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}°, worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°{(worstPointAcceptable ? "" : " - FAILED worst-point gate")}), training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
+
+            // MODIFIED: same reasoning as the pass message above - dropped the label+percent,
+            // same misleading-precision concern applies here too. qualityLabel/qualityPercent
+            // stay in the log line above; only the on-screen text changes.
+            //
+            // ADDED: nudge, not a cap - retrying continues uncapped regardless; this just adds
+            // a diagnostic hint once the WHOLE sequence has failed its quality gate repeatedly
+            // in a row, since that pattern (not just one bad point) more often points to fit.
+            string message = "Calibration Quality Too Low - Retrying...";
+            if (consecutiveFullRetries >= fullSequenceFitGuidanceThreshold)
+            {
+                message += " Try adjusting your headset fit.";
+            }
+            ShowResult(message, GetBiasQualityColor(averageResidualDegrees));
             Invoke(nameof(RetryCalibration), resultDisplayDuration);
         }
     }
@@ -601,13 +788,17 @@ public class CalibrationManager : MonoBehaviour
         SceneManager.LoadScene(mainSceneName);
     }
 
-    // ADDED: resets all per-run state and starts the 5-point sequence over from point 1 - used
-    // when the pass check above fails, so the user doesn't have to restart the whole app just
-    // because eye tracking glitched on one point.
+    // MODIFIED: a single glitched point no longer reaches this method at all - it just retries
+    // itself in place (see AdvanceToNextPoint). This now only runs for the one remaining full-
+    // restart case: HandleValidationComplete's quality gate, where the fitted correction itself
+    // (not any one point) measured too imprecise - resets all per-run state and starts the
+    // whole 5+4-point sequence over from point 1.
     private void RetryCalibration()
     {
         currentPointIndex = 0;
         pointsCollected = 0;
+        currentPointRetryCount = 0;
+        acceptedPointCorrections.Clear();
         biasAngleSum = 0f;
         validationResidualSum = 0f;
         validationPrecisionSum = 0f;
@@ -621,6 +812,7 @@ public class CalibrationManager : MonoBehaviour
         sampleSum = Vector3.zero;
         sampleCount = 0;
         currentPointRawSamplesLocal.Clear();
+        stableFrameCount = 0;
         CalibrationCorrectionLocal = Quaternion.identity;
         // ADDED: must reset this too now - retry can now happen AFTER IsCalibrated was set true
         // (a quality-gated retry, following validation) as well as before it (a training-phase

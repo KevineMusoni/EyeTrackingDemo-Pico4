@@ -50,8 +50,8 @@ the app, it asks you to look at 5 dots shown one at a time. It measures how far 
 from each dot and learns a correction for it - then checks its own work by testing the correction
 against 4 more dots (top, bottom, left, right) it never used to learn from. If that re-check comes back too imprecise, it
 automatically tries the whole thing again on its own - you don't need to do anything. Only once
-it genuinely passes that quality check do you see a green pass message with a score from 0-100%
-(higher is better), and get taken straight into the main demo.
+it genuinely passes that quality check do you see a plain green "Tracking ready" message, and get
+taken straight into the main demo.
 
 There's no limit on how many times it will retry - this project favors an accurate result over a
 fast one, so seeing several orange "retrying" messages in a row is expected, not a sign anything
@@ -67,33 +67,31 @@ of gaze direction being consistently off by a small rotation). Code:
 
 ```mermaid
 flowchart TD
-    A([Calibration.unity loads]) --> B[Marker moves to point 1 of 5 training points]
+    A([Calibration.unity loads]) --> B[Marker at point 1 of 5 training points]
     B --> C{Update: past settle time?}
     C -->|still settling| C
-    C -->|settled| D[Average raw gaze samples]
-    D --> E{Dwell time reached?}
+    C -->|settled| D[Average raw gaze samples, check live convergence]
+    D --> E{Converged early OR dwell timeout reached?}
     E -->|no| C
     E -->|yes| F[Compute this point's correction angle]
-    F --> G{Angle greater than 20 degrees?}
-    G -->|reject: likely not looking at marker| H[Advance to next point]
-    G -->|accept| I[Blend into CalibrationCorrection]
-    I --> H
-    H --> J{More training points left?}
-    J -->|yes| B
-    J -->|no| K{All 5 training points accepted?}
-    K -->|no| L["Show 'Calibration Failed - Retrying' (red)"]
-    L --> M[Reset state] --> B
-    K -->|yes| P[Freeze CalibrationCorrection - marker moves to validation point 1 of 4]
-    P --> Q{Update: dwell + settle, same as above}
-    Q --> RG{Raw angle greater than 20 degrees?}
-    RG -->|reject: likely not looking at marker| S
-    RG -->|accept| R[Apply frozen CalibrationCorrection to raw gaze, measure residual angle to true point]
+    F --> G{Angle greater than 20 degrees, or dropout?}
+    G -->|reject: likely not looking at marker| H["Retry SAME point (other points' data untouched)"]
+    H --> B
+    G -->|accept| I{More training points left?}
+    I -->|yes| B
+    I -->|no| K[Fit CalibrationCorrection from all 5 points at once]
+    K --> P[Freeze correction - marker moves to validation point 1 of 4]
+    P --> Q{Update: dwell + settle + live convergence, same as above}
+    Q --> RG{Raw angle greater than 20 degrees, or dropout?}
+    RG -->|reject: likely not looking at marker| SH["Retry SAME point (other points' data untouched)"]
+    SH --> P
+    RG -->|accept| R[Apply frozen correction to raw gaze, measure residual angle to true point]
     R --> S{More validation points left?}
     S -->|yes| P
-    S -->|no| T{Residual error 3 degrees or under?}
-    T -->|no: Fair/Poor| U["Show 'Calibration Quality Too Low - Retrying' (orange)"]
-    U --> M
-    T -->|yes: Excellent/Good| N["Show 'Calibration Passed - label (percent)' (green)"]
+    S -->|no| T{Mean AND worst-point residual 3 degrees or under?}
+    T -->|no| U["Show 'Calibration Quality Too Low - Retrying' (orange) - restart WHOLE sequence"]
+    U --> A
+    T -->|yes| N["Show 'Tracking ready' (green) - degree/label/percent stay in adb logcat only"]
     N --> O([Load EyeTrackingDemo.unity])
 ```
 
@@ -169,8 +167,55 @@ gaze vs. the true point, `CalibrationCorrectionLocal` never applied - the same `
 computed for the rejection gate, just also summed this time) across all 4 points. If the corrected
 average isn't actually better than the uncorrected average, the fitted correction is discarded -
 `CalibrationCorrectionLocal` resets to identity (PICO's raw output) and the reported/gated quality
-number switches to the uncorrected residual - so the quality label, percentage, and pass/fail gate
-always reflect whichever result is actually about to ship, not an assumed-good fitted correction.
+number switches to the uncorrected residual - so the logged quality label/percentage and the
+pass/fail gate always reflect whichever result is actually about to ship, not an assumed-good
+fitted correction. (The label/percentage themselves are logged only, not shown on-screen - see
+below.)
+
+**All 5 training points are combined at once, not one at a time.** The 5 training points don't
+always perfectly agree on the correction (sample noise, or the real bias not being perfectly
+uniform in every direction) - when they don't, there's a mathematically correct way to combine
+them: the single rotation that minimizes the total error across all 5 simultaneously. The old
+approach approximated this by blending points one at a time via `Quaternion.Slerp` (point 2 blends
+50% toward its own answer, point 3 blends 33%, etc.) - a reasonable-sounding shortcut, but
+order-dependent, and not actually the mathematically optimal combination. `AverageQuaternions`
+(Markley et al., "Averaging Quaternions," 2007) replaces this: it treats all 5 accepted
+corrections as simultaneous evidence, builds their 4x4 outer-product accumulator matrix, and finds
+its dominant eigenvector via power iteration - that eigenvector *is* the least-squares-optimal
+single rotation, independent of point processing order. Same 5 points, same calibration time, a
+mathematically better way to combine what's already being measured.
+
+**Points finish as soon as they're stable, not on a fixed timer.** Every point used to take
+exactly 2 seconds (`dwellDurationPerPoint`), whether the gaze had settled in 0.3s or was still
+noisy at 1.9s - a fixed window treats easy and hard points identically, which wastes time on
+whichever fraction are already stable (often most of them, based on the precision numbers logged
+elsewhere). Now, after the settle window, each frame recomputes the running spread of samples
+collected so far for that point (same math as the precision metric above, just live instead of
+only at the end) - once that spread stays under `convergencePrecisionDegrees` (0.5°) for
+`minStableFramesToConverge` (10) consecutive frames, the point is considered done and the marker
+advances immediately. `dwellDurationPerPoint` (2s) still applies as a hard timeout ceiling if a
+point never stabilizes, so nothing can stall indefinitely. This is purely a time/UX improvement -
+it doesn't change what counts as valid data, only how soon "enough" data is judged collected;
+`adb logcat` logs each point's actual elapsed time and whether it converged early or timed out,
+so the time savings are directly observable rather than assumed. The two threshold values are
+starting guesses, not yet independently tuned against real device data.
+
+**A bad point retries itself, not the whole sequence.** Previously, ANY single point failing
+(dropout, or exceeding the 20° "were they looking at it" threshold) wiped everything and restarted
+the entire 5-training + 4-validation sequence from point 1 - even if it happened on the very last
+point, after 8 others had already succeeded. Now a failed point simply retries itself: the marker
+stays put, that one point's dwell window runs again, and every other point's already-good data is
+left completely untouched. This applies to both training and validation points equally. The one
+remaining case where everything still restarts from scratch is the quality gate below - a
+train/test-split accuracy problem with the *fitted correction itself* isn't something retrying one
+point can fix, since it's not that any single point was unusable.
+
+**No retry cap - by design, unchanged** - but two diagnostic nudges were added, since retries
+piling up in a specific pattern is a common symptom of headset fit, not something more silent
+retries alone are likely to fix: if the SAME point fails 3 times in a row, an on-screen hint
+suggests adjusting headset fit while that point keeps retrying; if the WHOLE sequence fails its
+quality gate 3 times in a row, the same hint gets appended to the existing retry message. Neither
+ever stops or limits retrying - they're purely informational.
 
 **A good average can hide one bad region.** Three excellent points and one bad one can still
 average out to "Good" overall - the mean has no way to flag that a specific direction (say, the
@@ -181,17 +226,22 @@ just the average of all 4 - a bad region can no longer hide behind three good on
 reports which point index was worst and its value on every validation run, whether it passed or
 failed the check, for diagnosability.
 
-That residual error becomes the label + 0-100% score
+That residual error becomes a label + 0-100% score internally
 (`GetBiasQualityLabel`/`GetBiasQualityPercent`, linearly mapped from 0° = 100% to the 5° "Poor"
-ceiling, `PoorBiasCeilingDegrees`) - and gates progression: only Excellent/Good (residual ≤3°,
-`GoodBiasCeilingDegrees`) proceeds. Fair/Poor shows orange `"Calibration Quality Too Low -
-Retrying..."` and restarts from point 1, uncapped by design - for a precision-sensitive use case,
-an accurate result matters more than a fast one. `adb logcat` shows both the residual and the
-training-set bias side by side (e.g. `Residual error=2.1° (Good, 58%) - training-set bias was
-0.9° for comparison`) so you can see how much the training-only number would have overstated
-accuracy.
+ceiling, `PoorBiasCeilingDegrees`), and gates progression: only Excellent/Good (residual ≤3°,
+`GoodBiasCeilingDegrees`, and the worst point also ≤3°) proceeds. **The label and percentage are
+logged only, never shown on-screen** - called out as misleading (e.g. exactly 3°, the pass
+threshold itself, displays as 40% - a number that reads like a poor result despite being a genuine
+pass). The user just sees a plain green `"Tracking ready"` on pass, or orange
+`"Calibration Quality Too Low - Retrying..."` on fail (which restarts the whole 5+4-point sequence,
+uncapped by design - for a precision-sensitive use case, an accurate result matters more than a
+fast one). `adb logcat` shows the full picture for anyone debugging: residual, label, percentage,
+training-set bias, and worst point side by side (e.g. `Residual error=2.1° (Good, 58%) vs
+uncorrected... worst point=2 (1.8°) - training-set bias was 0.9° for comparison`) so the degree of
+precision that would be misleading on-screen stays available where it's actually useful.
 
-Both outcomes, captured on-device:
+Both outcomes, captured on-device (**note: these predate the on-screen percentage being removed -
+still shows the old `"label (percent)"` format, due for a recapture**):
 
 <img src="Docs/Screenshots/calibration-quality-too-low.jpeg" width="45%"> <img src="Docs/Screenshots/calibration-passed-excellent.jpeg" width="45%">
 

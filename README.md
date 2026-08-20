@@ -5,6 +5,11 @@ This project is a fork of [Pico's official EyeTrackingDemo sample](https://githu
 
 ## What was added in this project
 
+- **Live headset-fit guide**, shown before calibration even starts - two on-screen dots track
+  each eye's real-time position relative to the sensor, so a bad fit can be corrected before it
+  ever affects calibration. Runs in its own `PositionGuide.unity` scene, first in the launch
+  order. Full write-up in [Head Position Guide](#head-position-guide) below, code in
+  [`PositionGuideManager.cs`](Assets/Scripts/PositionGuideManager.cs).
 - **5-point rotational gaze calibration**, with pass/fail validation, automatic retry, and a
   plain-language quality score - runs in its own `Calibration.unity` scene before the main demo
   loads. Full write-up in [User Calibration](#user-calibration) below, code in
@@ -41,6 +46,37 @@ To enable eye tracking feature you need to mark the Eye Tracking check box on PX
 ![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/PXR_Manager.png)
 
 - There are 3 parts in this project. A spot light is used to show an approximate eye gaze area.
+
+### Head Position Guide
+*New for this project - not part of the original Pico sample.*
+
+**What this does:** before calibration even starts, two dots on screen show roughly where each
+of your eyes is sitting relative to the headset's sensors, live, as you look around or adjust the
+fit. The goal is to catch a bad headset fit *before* it has a chance to affect calibration -
+right now, a fit problem only shows up indirectly, as calibration failing repeatedly with no
+clear reason why.
+
+**Technical details** (implementation): runs in a dedicated `PositionGuide.unity` scene, first in
+the launch order (before `Calibration.unity`). Reads `PXR_EyeTracking.GetLeftEyePositionGuide`/
+`GetRightEyePositionGuide` every frame - a normalized 0-1 position per eye, where `(0.5, 0.5)` is
+documented as ideally centered - and moves a UI dot per eye by `(position - 0.5) * movementMultiplier`
+relative to a static reference frame graphic. Code:
+[`Assets/Scripts/PositionGuideManager.cs`](Assets/Scripts/PositionGuideManager.cs).
+
+**Worth flagging honestly:** Pico's own SDK documentation marks this API `@note Available for
+Neo3 Pro Eye only` - Pico 4 Enterprise (this project's target) isn't in that documented support
+list. It was verified directly on-device before building anything further: both eyes returned
+real, distinct, stable values (e.g. left `~0.36/0.67`, right `~0.58/0.62`, frame-to-frame jitter
+of only ~0.01-0.02), confirming the feature works on this hardware in practice even though the
+docs don't explicitly say so. An occasional single-frame `(0,0,0)` reading does show up (a
+transient dropout, the same kind of thing `GazeReading` already tolerates for the main gaze
+signal elsewhere) - not evidence the feature is broken, just normal sensor noise.
+
+**Current state:** functional but visually unpolished - the reference frame and both eye
+indicators are plain placeholder squares (no sprite assigned yet), and advancing to calibration
+is a manual "Continue" button rather than an automatic stability check (e.g. "both eyes centered
+for N consecutive frames"). Both are reasonable next steps once the core signal was confirmed
+real, not designed in up front on a guess.
 
 ### User Calibration
 *Rebuilt for this project - see [What was added](#what-was-added-in-this-project) above.*

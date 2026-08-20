@@ -306,16 +306,28 @@ good improvement, confirmed as the right direction.
 
 - [x] Remove the on-screen percentage entirely - called out as arbitrary/misleading Replace with a plain "Tracking ready" message; keep degree
   measurements in logs only, not user-facing.
-  // done -> pass message is now "Tracking ready" (was "{label} ({percent}%)"), retry message
-  is "Calibration Quality Too Low - Retrying..." (dropped label+percent too, opt 1). Both
-  qualityLabel/qualityPercent still computed and logged in adb logcat, only the on-screen
-  ShowResult calls changed. Screenshots (Docs/Screenshots/calibration-*.jpeg) now stale, due
-  for a recapture.
+  // done -> pass message is now "Calibration complete" (was "{label} ({percent}%)", briefly
+  "Tracking ready" before user asked for this wording), retry message is "Calibration Quality
+  Too Low - Retrying..." (dropped label+percent too, opt 1). Both qualityLabel/qualityPercent
+  still computed and logged in adb logcat, only the on-screen ShowResult calls changed.
+  Screenshots (Docs/Screenshots/calibration-*.jpeg) now stale, due for a recapture.
 
   <!-- Different scene -  on launch, before calibration -->
-- [ ] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
+- [x] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
   "Position Guide" stage (see earlier research this session on `GetLeftEyePositionGuide`/
   `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise)
+  // done -> VERIFIED WORKING on Pico 4 Enterprise despite the Neo3-only doc note - real,
+  distinct, stable per-eye values confirmed on-device (e.g. left ~0.36/0.67, right ~0.58/0.62,
+  jitter ~0.01-0.02 frame to frame, occasional single-frame (0,0,0) dropout is normal/transient,
+  same as GazeReading's own occasional rejections elsewhere). New PositionGuideManager.cs +
+  PositionGuide.unity scene (duplicated from Calibration.unity, own XR rig), loads FIRST in
+  Build Settings before Calibration.unity. UI: Frame + LeftEyeIndicator + RightEyeIndicator
+  (plain placeholder squares so far, no sprites assigned) + Continue button (manual advance,
+  no auto-stability-gating yet - v1 kept simple per established pattern). User confirmed
+  "working as expected" on-device. Still TODO: swap in real sprites (frame outline + dot/aim
+  graphics, Tobii's sample has reference art not to be reused directly), tune
+  movementMultiplier against real observed ranges, consider holding last-good position on a
+  (0,0,0)-looking dropout frame instead of snapping the dot to the corner.
 
   
 

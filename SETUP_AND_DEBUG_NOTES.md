@@ -328,17 +328,3 @@ good improvement, confirmed as the right direction.
 only measures bias/residual, precision isn't tracked at all yet (see "keep individual samples"
 item above - that's the prerequisite for computing precision at all).
 
-## Next (for next session, non-calibration - unaffected by the above)
-
-- [ ] Add a real runtime permission request for `com.picovr.permission.EYE_TRACKING` - the app
-      still relies on manually granting it via `adb shell pm grant` (see "Eye tracking not
-      working" above); it should request it itself so a fresh install doesn't need that step.
-- [ ] Heatmap perf: `MeshGazeHeatmap.StampAt()` still uses `GetPixel`/`SetPixel` per stamp,
-      fine for prototyping but would need `SetPixels32`/a compute shader if this becomes a real
-      (not test-only) feature.
-- [ ] 3D Models README section still uses Pico's original external screenshot - none of today's
-      captures show the actual focus-highlight behavior (`ETCube.IsFocused()`/`UnFocused()`,
-      a solid color swap - different from the heatmap's gradual color buildup). Low priority,
-      user said not necessary for now.
-- [ ] Main Surgical VR project crash (SIGSEGV, foveation conflict) still on hold - not touched
-      today, revisit only when explicitly asked to come back to it.

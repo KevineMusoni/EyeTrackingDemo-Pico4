@@ -13,9 +13,7 @@ public static class GazeReading
     // wrong, and rejects a genuinely degenerate direction either way.
     private const float MinGazeVectorSqrMagnitude = 0.000001f;
 
-    // ADDED: visibility into how often this actually rejects a read on real hardware - a failed
-    // read otherwise fails silently, so there's no way to tell whether this is catching real
-    // glitches or just never triggering during a given test session.
+    // Visibility into how often this rejects a read on real hardware - otherwise fails silently.
     private static int totalAttempts = 0;
     private static int totalFailures = 0;
 

@@ -13,10 +13,9 @@ public class EyeTrackingManager : MonoBehaviour
     public GameObject SpotLight;
     public TMP_Text GazeOffsetText;
 
-    // MODIFIED: no longer an Inspector-wired reference - CalibrationManager now lives in a
-    // separate scene file (Calibration.unity), and Inspector references can't cross scene
-    // files. Read CalibrationManager.CalibrationCorrectionLocal directly (a static property)
-    // each frame in Update() instead - see that class for why it's static.
+    // CalibrationManager lives in a separate scene file (Calibration.unity) - Inspector
+    // references can't cross scene files, so CalibrationCorrectionLocal is read directly as a
+    // static property each frame in Update() instead.
 
     private Vector3 combineEyeGazeVector;
     private Vector3 combineEyeGazeOriginOffset;
@@ -37,17 +36,14 @@ public class EyeTrackingManager : MonoBehaviour
 
     private bool wasPressed;
 
-    // ADDED: tracks the actual raycast hit point (what the user is looking AT),
-    // as opposed to combineEyeGazeOrigin which is just the ray's start point near the eyes.
+    // The actual raycast hit point (what the user is looking AT), as opposed to
+    // combineEyeGazeOrigin which is just the ray's start point near the eyes.
     private bool hasGazeTarget;
     private Vector3 gazeTargetPoint;
 
-    // ADDED: dwell-time report data. Only ever gets entries for objects that have a
-    // MeshGazeHeatmap component (see GazeTargetControl) - i.e. just the two test objects,
-    // not every object in the scene. Key = object name, value = total seconds gazed at.
-    // Always displayed- no button/toggle, replaces the old live Vector/Point/
-    // Target readout entirely, so there's no more "looking at the report changes the data"
-    // problem: this isn't a single live value, it's an accumulating total per object.
+    // Only ever gets entries for objects with a MeshGazeHeatmap component (see
+    // GazeTargetControl). Key = object name, value = total seconds gazed at - an accumulating
+    // total, always displayed, so there's no "looking at the report changes the data" problem.
     private Dictionary<string, float> dwellTimes = new Dictionary<string, float>();
 
     void Start()
@@ -68,62 +64,39 @@ public class EyeTrackingManager : MonoBehaviour
             combineEyeGazeOriginOffset.y += primary2DAxis.y*0.001f;
 
         }
-        // MODIFIED: was calling GetHeadPosMatrix/GetCombineEyeGazeVector/GetCombineEyeGazePoint
-        // directly and ignoring their bool returns - a failed PXR read still writes zero-valued
-        // data into its out parameter, which would otherwise snap SpotLight/GazeTargetControl/
-        // the report to a bogus reading for that frame. TryReadRawGaze (GazeReading.cs) checks
-        // all of them; on failure this frame is skipped entirely and everything just keeps
-        // last frame's values instead of jumping to zero.
+        // A failed PXR read still writes zero-valued data into its out parameter - TryReadRawGaze
+        // checks all the underlying calls' return values, so a failure skips this frame entirely
+        // and everything keeps last frame's values instead of jumping to zero.
         if (!GazeReading.TryReadRawGaze(out headPoseMatrix, out combineEyeGazeVector, out combineEyeGazeOrigin))
         {
             return;
         }
 
-        //Translate Eye Gaze origin to world space (position only - direction handled below,
-        // separately, since the correction has to be applied before that conversion now)
         combineEyeGazeOrigin += combineEyeGazeOriginOffset;
         combineEyeGazeOriginInWorldSpace = originPoseMatrix.MultiplyPoint(headPoseMatrix.MultiplyPoint(combineEyeGazeOrigin));
 
-        // ADDED: per-eye diagnostic logging - populates the previously-unused leftEyeStatus/
-        // rightEyeStatus fields, to check whether one eye is tracking worse than the other
-        // (vs. the combined gaze just reflecting normal ocular dominance).
+        // Per-eye diagnostic - checks whether one eye is tracking worse than the other, vs. the
+        // combined gaze just reflecting normal ocular dominance.
         PXR_EyeTracking.GetLeftEyePoseStatus(out leftEyeStatus);
         PXR_EyeTracking.GetRightEyePoseStatus(out rightEyeStatus);
         PXR_EyeTracking.GetLeftEyeGazeOpenness(out float leftOpenness);
         PXR_EyeTracking.GetRightEyeGazeOpenness(out float rightOpenness);
         Debug.Log($"[EyeTrackingManager] L status={leftEyeStatus} openness={leftOpenness:F2} | R status={rightEyeStatus} openness={rightOpenness:F2}");
 
-        // MODIFIED: reads the static CalibrationManager.CalibrationCorrectionLocal directly
-        // (was an Inspector-wired instance reference) - see field comment above for why. Only
-        // the direction is corrected, not the origin point - matches the angular-bias error
-        // model the calibration routine measures. Safe unconditionally: this static property
-        // defaults to Quaternion.identity (a no-op rotation) until/unless a Calibration scene
-        // actually runs and completes - if this main scene is opened directly without ever
-        // going through Calibration.unity (e.g. quick testing in the Editor), it's just a
-        // harmless no-op, same as raw uncorrected data.
-        //
-        // MODIFIED: the correction is now applied to combineEyeGazeVector (LOCAL, straight from
-        // GazeReading) BEFORE the world-space transform, not after - it was previously applied
-        // to the already-world-space vector, which only stayed accurate for as long as the head
-        // was in the same orientation it was in during calibration. CalibrationCorrectionLocal
-        // is fit in this same local frame (see CalibrationManager.cs), so applying it here means
-        // it correctly "rides along" with head rotation instead of being a fixed room direction.
+        // Correction applied to combineEyeGazeVector (LOCAL) BEFORE the world-space transform,
+        // not after - CalibrationCorrectionLocal is fit in this same local frame, so applying
+        // it here means it rides along with head rotation instead of being a fixed room
+        // direction that only stayed accurate at the exact orientation calibration happened in.
+        // Safe unconditionally: defaults to Quaternion.identity (no-op) if Calibration.unity
+        // never ran, e.g. opening this scene directly for a quick Editor test.
         Vector3 correctedGazeVectorLocal = CalibrationManager.CalibrationCorrectionLocal * combineEyeGazeVector;
         Vector3 correctedGazeVectorWorld = originPoseMatrix.MultiplyVector(headPoseMatrix.MultiplyVector(correctedGazeVectorLocal));
 
         SpotLight.transform.position = combineEyeGazeOriginInWorldSpace;
         SpotLight.transform.rotation = Quaternion.LookRotation(correctedGazeVectorWorld, Vector3.up);
 
-        // MOVED: GazeTargetControl now runs before the text update below, so gazeTargetPoint
-        // (set inside it) is fresh for this frame's display instead of one frame stale.
-        // MODIFIED: passes correctedGazeVectorWorld (was combineEyeGazeVectorInWorldSpace) so
-        // all downstream hit-detection/heatmap stamping/dwell-tracking uses the calibrated
-        // direction, not the raw one.
         GazeTargetControl(combineEyeGazeOriginInWorldSpace, correctedGazeVectorWorld);
 
-        // MODIFIED: replaced the live Vector/Point/Target readout with the always-on dwell
-        // report - cleaner, and avoids the problem where reading a live "Target" value on
-        // the panel while looking at the panel changes what it's currently reporting.
         string report = "Gaze Report (seconds looked at each object):\n\n";
         foreach (KeyValuePair<string, float> entry in dwellTimes)
         {
@@ -139,36 +112,19 @@ public class EyeTrackingManager : MonoBehaviour
         Ray ray = new Ray(origin,vector);
         if (Physics.SphereCast(origin,0.0005f,vector,out hitinfo))
         {
-            // Expose hit point for the text display regardless of collider tag,
-            // "Target" shows what is actually under the gaze even for non-"Target"-tagged objects.
             hasGazeTarget = true;
             gazeTargetPoint = hitinfo.point;
 
-            // gaze heatmap hook - only runsif what is hit has a MeshGazeHeatmap component attached (TryGetComponent returns false otherwise,
-            // so this is a no-op for every other object in the scene, e.g. the cube/character).
             if (hitinfo.collider.TryGetComponent(out MeshGazeHeatmap heatmap))
             {
-                // Physics.SphereCast (used above, "hitinfo") does not populate
-                // RaycastHit.textureCoord - only Physics.Raycast does. So instead of reusing
-                // "hitinfo", we fire a second, plain Raycast along the exact same ray just to
-                // get a RaycastHit with valid UV data. 100f = max raycast distance in meters,
-                // generous since the sphere-cast above already found something within range.
+                // Physics.SphereCast doesn't populate RaycastHit.textureCoord - only
+                // Physics.Raycast does - so a second raycast along the same ray gets the UV
+                // data, with a same-collider check before trusting it.
                 if (Physics.Raycast(origin, vector, out RaycastHit uvHit, 100f) && uvHit.collider == hitinfo.collider)
                 {
-                    // (uvHit.collider == hitinfo.collider) confirms the
-                    // second raycast hit the SAME object as the sphere-cast did, not something
-                    // else in between - only then is uvHit.textureCoord meaningful to use.
-                    // MODIFIED: pass the whole RaycastHit (was just uvHit.textureCoord) - the
-                    // heatmap now also needs uvHit.triangleIndex to auto-scale the brush size
-                    // to this object's actual physical size (see MeshGazeHeatmap for why).
                     heatmap.StampAt(uvHit);
                 }
 
-                // ADDED: dwell-time report accumulation. Only runs inside this same
-                // "does the hit object have MeshGazeHeatmap" check, so it automatically only
-                // tracks the two designated test objects, not anything else in the scene.
-                // Uses TryGetValue (not GetValueOrDefault) for compatibility with older
-                // .NET API Compatibility Level settings this project might be using.
                 string objName = hitinfo.collider.gameObject.name;
                 dwellTimes.TryGetValue(objName, out float existingDwell);
                 dwellTimes[objName] = existingDwell + Time.deltaTime;
@@ -196,7 +152,6 @@ public class EyeTrackingManager : MonoBehaviour
         }
         else
         {
-            // ADDED: no collider hit this frame, so there's no valid target point to show.
             hasGazeTarget = false;
 
             if (selectedObj != null)

@@ -311,20 +311,18 @@ good improvement, confirmed as the right direction.
   qualityLabel/qualityPercent still computed and logged in adb logcat, only the on-screen
   ShowResult calls changed. Screenshots (Docs/Screenshots/calibration-*.jpeg) now stale, due
   for a recapture.
-  
+
+  <!-- Different scene -  on launch, before calibration -->
 - [ ] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
   "Position Guide" stage (see earlier research this session on `GetLeftEyePositionGuide`/
-  `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise,
-  would need on-device testing).
-- [ ] Keep a separate, optional detailed "Full Validation" mode: more points, longer sampling,
-  separate left/right-eye quality metrics.
+  `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise)
 
-**Target: two modes, same underlying math:**
+  
+
+**Target: two modes**
 1. **Rapid/investor mode** - ~8-12 seconds, 5 calibration points + 4 validation points.
 2. **Full Validation mode** - more points/samples, detailed per-point bias + precision + validity.
 
 **Reference data point**: calibration success criteria was **≤3° bias AND
-≤1° precision** - notably a two-part criterion (both bias and precision), whereas today's system
-only measures bias/residual, precision isn't tracked at all yet (see "keep individual samples"
-item above - that's the prerequisite for computing precision at all).
+≤1° precision** - notably a two-part criterion (both bias and precision), whereas today's system only measures bias/residual, precision isn't tracked at all yet
 

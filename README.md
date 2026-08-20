@@ -50,8 +50,8 @@ the app, it asks you to look at 5 dots shown one at a time. It measures how far 
 from each dot and learns a correction for it - then checks its own work by testing the correction
 against 4 more dots (top, bottom, left, right) it never used to learn from. If that re-check comes back too imprecise, it
 automatically tries the whole thing again on its own - you don't need to do anything. Only once
-it genuinely passes that quality check do you see a plain green "Tracking ready" message, and get
-taken straight into the main demo.
+it genuinely passes that quality check do you see a plain green "Calibration complete" message,
+and get taken straight into the main demo.
 
 There's no limit on how many times it will retry - this project favors an accurate result over a
 fast one, so seeing several orange "retrying" messages in a row is expected, not a sign anything
@@ -91,7 +91,7 @@ flowchart TD
     S -->|no| T{Mean AND worst-point residual 3 degrees or under?}
     T -->|no| U["Show 'Calibration Quality Too Low - Retrying' (orange) - restart WHOLE sequence"]
     U --> A
-    T -->|yes| N["Show 'Tracking ready' (green) - degree/label/percent stay in adb logcat only"]
+    T -->|yes| N["Show 'Calibration complete' (green) - degree/label/percent stay in adb logcat only"]
     N --> O([Load EyeTrackingDemo.unity])
 ```
 
@@ -232,7 +232,7 @@ ceiling, `PoorBiasCeilingDegrees`), and gates progression: only Excellent/Good (
 `GoodBiasCeilingDegrees`, and the worst point also ≤3°) proceeds. **The label and percentage are
 logged only, never shown on-screen** - called out as misleading (e.g. exactly 3°, the pass
 threshold itself, displays as 40% - a number that reads like a poor result despite being a genuine
-pass). The user just sees a plain green `"Tracking ready"` on pass, or orange
+pass). The user just sees a plain green `"Calibration complete"` on pass, or orange
 `"Calibration Quality Too Low - Retrying..."` on fail (which restarts the whole 5+4-point sequence,
 uncapped by design - for a precision-sensitive use case, an accurate result matters more than a
 fast one). `adb logcat` shows the full picture for anyone debugging: residual, label, percentage,
@@ -252,6 +252,33 @@ memory only, reset every launch (multiple people may share the headset). On pass
 applying it to the local gaze vector before converting to world space (not after, as it used to -
 a world-space correction only stays accurate for as long as the head is in the same orientation
 it was in during calibration, which doesn't hold up once the user turns their head).
+
+**On-device debugging (PowerShell):**
+
+```powershell
+# Confirm the headset is connected and see the running app's process
+adb devices
+adb shell pidof com.DefaultCompany.PICOEyeTracking
+
+# One-time setup: grant the runtime eye-tracking permission (needed after a fresh install -
+# the app never requests it itself, see SETUP_AND_DEBUG_NOTES.md)
+adb shell pm grant com.DefaultCompany.PICOEyeTracking com.picovr.permission.EYE_TRACKING
+
+# Clear the log before a test run, so only that run's output shows up
+adb logcat -c
+
+# Relaunch the app (after a rebuild, or to start a clean test) - PowerShell 5.1 needs ; not &&
+adb shell am force-stop com.DefaultCompany.PICOEyeTracking; adb shell am start -n com.DefaultCompany.PICOEyeTracking/com.unity3d.player.UnityPlayerActivity
+
+# Reboot the whole headset - more disruptive, only if the app/adb itself seems stuck
+adb reboot
+
+# Pull accuracy/precision numbers from the most recent run
+adb logcat -d | Select-String "residual|precision"
+
+# Pull the full picture: per-point results plus pass/fail summaries
+adb logcat -d | Select-String "correction:|Validation complete|worst point"
+```
 
 #### Open question: validating the quality bands scientifically
 

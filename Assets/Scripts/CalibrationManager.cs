@@ -459,7 +459,8 @@ public class CalibrationManager : MonoBehaviour
         {
             Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}° - worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°) - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
             // Label/percent stay in the log only - see GetBiasQualityPercent.
-            ShowResult("Tracking ready", GetBiasQualityColor(averageResidualDegrees));
+            // Once calibration is complete, direct the user to eyetracking scene.
+            ShowResult("Calibration complete", GetBiasQualityColor(averageResidualDegrees));
             consecutiveFullRetries = 0;
             Invoke(nameof(LoadMainScene), resultDisplayDuration);
         }

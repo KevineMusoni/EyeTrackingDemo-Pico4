@@ -28,6 +28,11 @@ public class MeshGazeHeatmap : MonoBehaviour
     [Header("Overlay Display")]
     [SerializeField] private Renderer overlayRenderer;
 
+    // Optional - only set on objects whose overlay quad needs to composite over a PXR_OverLay
+    // External Surface video (e.g. SurgeryVideoScreen_HeatOverlay). Left unassigned on plain
+    // test objects like MadFlower, which render normally with no compositor layer involved.
+    [SerializeField] private SurgeryHeatmapOverlayLayer compositorLayer;
+
     private Texture2D heatTexture;
     private Mesh colliderMesh;
 
@@ -55,6 +60,12 @@ public class MeshGazeHeatmap : MonoBehaviour
         else
         {
             Debug.LogWarning($"[MeshGazeHeatmap] '{gameObject.name}' has no overlayRenderer assigned - heatmap will never be visible.");
+        }
+
+        if (compositorLayer != null)
+        {
+            compositorLayer.SetHeatTexture(heatTexture);
+            Debug.Log($"[MeshGazeHeatmap] Fed heatTexture into compositor layer on '{compositorLayer.name}'.");
         }
     }
 

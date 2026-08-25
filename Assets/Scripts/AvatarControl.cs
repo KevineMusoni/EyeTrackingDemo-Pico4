@@ -5,8 +5,6 @@ using UnityEngine;
 
 public class AvatarControl : MonoBehaviour
 {
-    // inherits ETObject for automatic focus-detection
-    
     public SkinnedMeshRenderer Skin;
     public SkinnedMeshRenderer LeftEyeExample;
     public SkinnedMeshRenderer RightEyeExample;
@@ -17,14 +15,13 @@ public class AvatarControl : MonoBehaviour
 
     private int rightEyeBlinkIndex;
     private float rightEyeOpenness;
-    // Start is called before the first frame update
+
     void Start()
     {
         leftEyeBlinkIndex = Skin.sharedMesh.GetBlendShapeIndex("eyeBlinkLeft");
         rightEyeBlinkIndex = Skin.sharedMesh.GetBlendShapeIndex("eyeBlinkRight");
     }
 
-    // Update is called once per frame
     void Update()
     {
         PXR_EyeTracking.GetLeftEyeGazeOpenness(out leftEyeOpenness);

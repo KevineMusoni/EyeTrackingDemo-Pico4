@@ -407,7 +407,42 @@ render** - not just in front of objects behind it in 3D space. Since `SurgeryVid
 it was being drawn correctly but buried underneath the compositor's video layer regardless of
 its actual depth. Dwell-time tracking on `SurgeryVideoScreen` kept working throughout (proves the
 gaze raycast/UV pipeline was never broken - purely a compositing-order display issue).
-**Fix**: `SurgeryVideoOverlayPlayer.Awake()` now sets `overlay.overlayType =
-PXR_OverLay.OverlayType.Underlay`, so the video composites *behind* the normal eye-buffer
-render and the heatmap quad draws on top of it as intended. Not yet re-verified on-device.
+
+**Fix attempt 1 - `Underlay`, reverted**: set `overlay.overlayType = PXR_OverLay.OverlayType.Underlay`
+so the video composites *behind* the normal eye-buffer render instead, letting the heatmap quad
+draw on top of it normally. Broke the video entirely (black screen) - `Underlay` requires the
+app's own eye-buffer to have alpha=0 "hole-punch" pixels where the video should show through,
+but `PXR_OverLay.Awake()` unconditionally disables the `MeshRenderer` on its own GameObject, so
+nothing draws there at all - the region falls back to the camera's opaque clear (black), which
+blocks the underlay completely. Reverted back to the `Overlay` default.
+
+**Fix (actual) - second independent compositor layer for the heatmap**: gave the heatmap its own
+`PXR_OverLay` (`Assets/Scripts/SurgeryHeatmapOverlayLayer.cs`, on `SurgeryVideoScreen_HeatOverlay`,
+a separate GameObject from `MeshGazeHeatmap`/`SurgeryVideoScreen` so the data-recording path is
+untouched), `TextureType.DynamicTexture` with `layerDepth = -1` (video stays at the default `0`),
+fed via `PXR_OverLay.SetTexture(heatTexture, dynamic: true)` from `MeshGazeHeatmap.Start()` once
+the runtime heat texture exists. Two independently-stacked compositor layers ordered by depth,
+sidestepping Unity's render/alpha pipeline (and the `Underlay` hole-punch problem) entirely.
+
+Still invisible after this, though - traced through `PXR_OverlayManager.cs`'s per-frame
+submission loop and found the real bug: the heatmap's `PXR_OverLay` had `isExternalAndroidSurface`
+stuck at `1` in the saved scene (confirmed by reading the raw YAML, not inferred from symptoms) -
+likely inherited from copying/pattern-matching the video layer's component when the Editor
+auto-added it. External-surface layers skip `CopyRT()` (the method that actually uploads a fed
+texture's pixels to the compositor), so the layer existed and had a texture assigned, but nothing
+ever reached the screen - independent of `layerDepth`, which is why testing `1` and `-1` both
+"failed" identically and wasted a round of debugging before the real cause surfaced. Fixed both
+the scene data (`isExternalAndroidSurface: 1` -> `0`) and defensively in
+`SurgeryHeatmapOverlayLayer.Awake()` (`overlay.isExternalAndroidSurface = false` now set
+explicitly), so a stray Inspector value can't cause this silently again.
+**Confirmed working on-device**: heatmap renders correctly on top of the video, live.
+
+**Video pillarboxed (black bars on sides) - fixed**: `SurgeryVideoScreen`'s `Transform.localScale`
+was `{x: 3.4, y: 0.96}`, a ~3.56:1 aspect ratio matching the *combined* double-wide 3840x1080
+stereo file. But `PXR_OverLay`'s `Surface3DType.LeftRight` already splits that in half internally
+and shows each eye its own 1920x1080 (16:9) half, so the quad was sized for the wrong frame,
+leaving the correctly-proportioned per-eye image centered with black bars on both sides. Fixed by
+resizing both `SurgeryVideoScreen` and `SurgeryVideoScreen_HeatOverlay` (kept aligned, since the
+latter is a duplicate offset slightly in Z to avoid z-fighting rather than scaled up) to
+`{x: 1.7066667, y: 0.96}` - true 16:9, same height, matching the per-eye frame.
 

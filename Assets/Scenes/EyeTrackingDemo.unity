@@ -3005,6 +3005,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   overlayRenderer: {fileID: 967063416}
+  compositorLayer: {fileID: 0}
 --- !u!64 &599140992
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -4617,7 +4618,7 @@ Transform:
   m_GameObject: {fileID: 982759295}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 1.3, z: 3}
-  m_LocalScale: {x: 3.4, y: 0.96, z: 1}
+  m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -4641,6 +4642,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   overlayRenderer: {fileID: 2027327160}
+  compositorLayer: {fileID: 2027327163}
 --- !u!114 &982759302
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4821,6 +4823,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   overlayRenderer: {fileID: 0}
+  compositorLayer: {fileID: 0}
 --- !u!137 &1031389014
 SkinnedMeshRenderer:
   m_ObjectHideFlags: 0
@@ -5419,6 +5422,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   overlayRenderer: {fileID: 1031389014}
+  compositorLayer: {fileID: 0}
 --- !u!114 &1147064817
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5437,6 +5441,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   overlayRenderer: {fileID: 0}
+  compositorLayer: {fileID: 0}
 --- !u!1 &1153806284
 GameObject:
   m_ObjectHideFlags: 0
@@ -8301,6 +8306,8 @@ GameObject:
   - component: {fileID: 2027327162}
   - component: {fileID: 2027327161}
   - component: {fileID: 2027327160}
+  - component: {fileID: 2027327164}
+  - component: {fileID: 2027327163}
   m_Layer: 0
   m_Name: SurgeryVideoScreen_HeatOverlay
   m_TagString: Untagged
@@ -8367,12 +8374,140 @@ Transform:
   m_GameObject: {fileID: 2027327159}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 1.3, z: 2.99}
-  m_LocalScale: {x: 3.4, y: 0.96, z: 1}
+  m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 12
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2027327163
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2027327159}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a130307ef282e748bc6e792b806f836, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  layerDepth: -1
+--- !u!114 &2027327164
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2027327159}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: daeec670ce18c8d488f9f5b2e51c817b, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  overlayIndex: 0
+  layerDepth: 0
+  imageIndex: 0
+  overlayType: 0
+  overlayShape: 1
+  textureType: 0
+  overlayTransform: {fileID: 0}
+  xrRig: {fileID: 0}
+  layerTextures:
+  - {fileID: 0}
+  - {fileID: 0}
+  isDynamic: 0
+  overlayTextureIds: 0000000000000000
+  mvMatrixs:
+  - e00: 0
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 0
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 0
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 0
+  - e00: 0
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 0
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 0
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 0
+  modelScales:
+  - {x: 0, y: 0, z: 0}
+  - {x: 0, y: 0, z: 0}
+  modelRotations:
+  - {x: 0, y: 0, z: 0, w: 0}
+  - {x: 0, y: 0, z: 0, w: 0}
+  modelTranslations:
+  - {x: 0, y: 0, z: 0}
+  - {x: 0, y: 0, z: 0}
+  cameraRotations:
+  - {x: 0, y: 0, z: 0, w: 0}
+  - {x: 0, y: 0, z: 0, w: 0}
+  cameraTranslations:
+  - {x: 0, y: 0, z: 0}
+  - {x: 0, y: 0, z: 0}
+  overlayEyeCamera:
+  - {fileID: 0}
+  - {fileID: 0}
+  overrideColorScaleAndOffset: 0
+  colorScale: {x: 1, y: 1, z: 1, w: 1}
+  colorOffset: {x: 0, y: 0, z: 0, w: 0}
+  isExternalAndroidSurface: 0
+  isExternalAndroidSurfaceDRM: 0
+  externalAndroidSurface3DType: 0
+  radius: 0
+  useImageRect: 0
+  textureRect: 1
+  destinationRect: 0
+  srcRectLeft:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  srcRectRight:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  dstRectLeft:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  dstRectRight:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  useLayerBlend: 0
+  srcColor: 1
+  dstColor: 1
+  srcAlpha: 1
+  dstAlpha: 1
 --- !u!1 &2031492594
 GameObject:
   m_ObjectHideFlags: 0

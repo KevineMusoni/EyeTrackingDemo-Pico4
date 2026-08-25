@@ -22,6 +22,11 @@ This project is a fork of [Pico's official EyeTrackingDemo sample](https://githu
 - **Per-object dwell-time report**, replacing the original live gaze-vector readout with an
   accumulating "seconds looked at each object" report, in
   [`EyeTrackingManager.cs`](Assets/Scripts/EyeTrackingManager.cs).
+- **Stereoscopic surgery training video with a live gaze heatmap overlaid on top of it**, played
+  via PICO's native compositor-layer API rather than Unity's own renderer. Full write-up in
+  [Surgery Video with Gaze Heatmap](#surgery-video-with-gaze-heatmap) below, code in
+  [`SurgeryVideoOverlayPlayer.cs`](Assets/Scripts/SurgeryVideoOverlayPlayer.cs) and
+  [`SurgeryHeatmapOverlayLayer.cs`](Assets/Scripts/SurgeryHeatmapOverlayLayer.cs).
 - Fixes required to get the original sample building, deploying, and eye-tracking correctly on a
   PICO 4 Enterprise headset (stale package reference, corrupted Android debug keystore, runtime
   eye-tracking permission grant, Built-in vs URP shader mismatch, mesh Read/Write import setting).
@@ -30,18 +35,18 @@ Everything from here down is the original Pico sample's documentation, with the 
 Calibration** section rewritten to describe the rebuilt system above; **3D models** and **Avatar**
 are unmodified from the original sample.
 
-## Environment：
+## Environment
 
 - PUI 5.4.0
 - Unity 2021.3.13f1
 - Pico Unity Integration SDK 2.1.4
 
-## Applicable devices:
+## Applicable devices
 
 - PICO 4 Pro
 - PICO 4 Enterprise
 
-## Description：
+## Description
 To enable eye tracking feature you need to mark the Eye Tracking check box on PXR_Manager:
 ![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/PXR_Manager.png)
 
@@ -352,6 +357,25 @@ is now real, device-specific measured data instead of a borrowed benchmark. Stat
    produces a real residual-error measurement (#1 above), logging and aggregating those across
    multiple people/sessions on this actual headset would let the 1.5°/3°/5° cutoffs themselves
    be set from a real, device-specific distribution instead of a judgment call.
+
+### Surgery Video with Gaze Heatmap
+*New for this project - not part of the original Pico sample.*
+
+**What this does:** a stereoscopic 3D surgery training video plays on an in-scene screen, with
+the live gaze heatmap rendered directly on top of it, showing exactly where attention went while
+watching.
+
+**Technical details** (implementation): the video plays via PICO's native compositor-layer API
+(`PXR_OverLay`, `Unity.XR.PXR`) in External Surface mode, which hands the video decoder's output
+straight to the headset's own system compositor instead of going through Unity's rendering
+pipeline - necessary since Unity's standard `VideoPlayer` and third-party video plugins never
+displayed a frame on this hardware (see `SETUP_AND_DEBUG_NOTES.md` for the full debugging
+history). Playback itself is driven by a small native Android plugin (ExoPlayer-backed) called
+via JNI. The heatmap renders on its own independent compositor layer, stacked in front of the
+video by depth rather than drawn through Unity's normal renderer, so it stays visible regardless
+of how the video is displayed. Code:
+[`SurgeryVideoOverlayPlayer.cs`](Assets/Scripts/SurgeryVideoOverlayPlayer.cs),
+[`SurgeryHeatmapOverlayLayer.cs`](Assets/Scripts/SurgeryHeatmapOverlayLayer.cs).
 
 ### 3D Models
 *Original Pico sample, unmodified.*

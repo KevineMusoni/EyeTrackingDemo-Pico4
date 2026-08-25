@@ -25,7 +25,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     {
         overlay = GetComponent<PXR_OverLay>();
         overlay.overlayShape = PXR_OverLay.OverlayShape.Quad;
-        overlay.overlayType = PXR_OverLay.OverlayType.Underlay;
         overlay.isExternalAndroidSurface = true;
         overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.LeftRight;
         overlay.externalAndroidSurfaceObjectCreated += OnSurfaceCreated;

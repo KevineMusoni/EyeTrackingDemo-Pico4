@@ -56,17 +56,15 @@ public class EyeTrackingManager : MonoBehaviour
 
     void Update()
     {
-        //Offest Adjustment
         if (InputDevices.GetDeviceAtXRNode(XRNode.RightHand).TryGetFeatureValue(CommonUsages.primary2DAxis, out primary2DAxis))
         {
-
             combineEyeGazeOriginOffset.x += primary2DAxis.x*0.001f;
             combineEyeGazeOriginOffset.y += primary2DAxis.y*0.001f;
-
         }
+
         // Failed pxr read writes zero-valued data into its out parameter - TryReadRawGaze
-        // checks all the underlying calls' return values, so a failure skips this frame entirely and everything keeps last frame's values instead of jumping to zero.
-       
+        // checks all the underlying calls' return values, so a failure skips this frame entirely
+        // and everything keeps last frame's values instead of jumping to zero.
         if (!GazeReading.TryReadRawGaze(out headPoseMatrix, out combineEyeGazeVector, out combineEyeGazeOrigin))
         {
             return;

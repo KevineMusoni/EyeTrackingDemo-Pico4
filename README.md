@@ -17,8 +17,6 @@ This project is a fork of [Pico's official EyeTrackingDemo sample](https://githu
 - **Gaze-driven heatmap prototype**, stamping heat onto an object's surface wherever the user
   looks, with brush size auto-scaled to that object's real physical size:
   [`MeshGazeHeatmap.cs`](Assets/Scripts/MeshGazeHeatmap.cs).
-
-  <img src="Docs/Screenshots/heatmap-cube.jpeg" width="32%"> <img src="Docs/Screenshots/heatmap-madflower.jpeg" width="32%">
 - **Per-object dwell-time report**, replacing the original live gaze-vector readout with an
   accumulating "seconds looked at each object" report, in
   [`EyeTrackingManager.cs`](Assets/Scripts/EyeTrackingManager.cs).
@@ -50,7 +48,7 @@ are unmodified from the original sample.
 To enable eye tracking feature you need to mark the Eye Tracking check box on PXR_Manager:
 ![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/PXR_Manager.png)
 
-- There are 3 parts in this project. A spot light is used to show an approximate eye gaze area.
+- A spot light is used to show an approximate eye gaze area.
 
 ### Head Position Guide
 *New for this project - not part of the original Pico sample.*
@@ -68,8 +66,8 @@ documented as ideally centered - and moves a UI dot per eye by `(position - 0.5)
 relative to a static reference frame graphic. Code:
 [`Assets/Scripts/PositionGuideManager.cs`](Assets/Scripts/PositionGuideManager.cs).
 
-**Device support - corrected:** this project's bundled SDK package (`PICO Unity)
-IntegrationSDK-214-20230302`, March 2023) has a doc comment on both methods reading `@note
+**Device support - corrected:** this project's bundled SDK package
+(`PICO Unity IntegrationSDK-214-20230302`, March 2023) has a doc comment on both methods reading `@note
 Available for Neo3 Pro Eye only`, which initially looked like this project's target hardware
 (Pico 4 Enterprise) might not be officially supported. Checking a newer Pico SDK build's source
 directly ([`PXR_EyeTracking.cs`](https://gitup.uni-potsdam.de/sauerbrei1/unity-solarsystem/-/raw/369671ef649ac24eac2591a6c8b803d2af878bdc/pico/Runtime/Scripts/Features/PXR_EyeTracking.cs),
@@ -378,8 +376,6 @@ of how the video is displayed. Code:
 **What this does:** two 3D objects in the scene (a cube and an animated character) react when you
 look at them - they visually highlight to show they're "focused," and un-highlight the moment
 you look away. Implementation: derive from `ETObject` and implement `IsFocused()`/`UnFocused()`.
-
-![Screenshot](https://github.com/picoxr/EyeTrackingDemo/blob/eb8677aca7d30c2506d2e8ab0b0ed992c00e9d8a/Screenshots/3DModels.png)
 
 ### Avatar
 *Original Pico sample, unmodified.*

@@ -294,11 +294,6 @@ training-set bias, and worst point side by side (e.g. `Residual error=2.1° (Goo
 uncorrected... worst point=2 (1.8°) - training-set bias was 0.9° for comparison`) so the degree of
 precision that would be misleading on-screen stays available where it's actually useful.
 
-Both outcomes, captured on-device (**note: these predate the on-screen percentage being removed -
-still shows the old `"label (percent)"` format, due for a recapture**):
-
-<img src="Docs/Screenshots/calibration-quality-too-low.jpeg" width="45%"> <img src="Docs/Screenshots/calibration-passed-excellent.jpeg" width="45%">
-
 **Cross-scene handoff:** `CalibrationCorrectionLocal`/`IsCalibrated` are `static` fields - held in
 memory only, reset every launch (multiple people may share the headset). On pass,
 `SceneManager.LoadScene()` replaces `Calibration.unity` with `EyeTrackingDemo.unity`, and

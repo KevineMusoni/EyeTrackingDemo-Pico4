@@ -63,20 +63,33 @@ documented as ideally centered - and moves a UI dot per eye by `(position - 0.5)
 relative to a static reference frame graphic. Code:
 [`Assets/Scripts/PositionGuideManager.cs`](Assets/Scripts/PositionGuideManager.cs).
 
-**Worth flagging honestly:** Pico's own SDK documentation marks this API `@note Available for
-Neo3 Pro Eye only` - Pico 4 Enterprise (this project's target) isn't in that documented support
-list. It was verified directly on-device before building anything further: both eyes returned
-real, distinct, stable values (e.g. left `~0.36/0.67`, right `~0.58/0.62`, frame-to-frame jitter
-of only ~0.01-0.02), confirming the feature works on this hardware in practice even though the
-docs don't explicitly say so. An occasional single-frame `(0,0,0)` reading does show up (a
-transient dropout, the same kind of thing `GazeReading` already tolerates for the main gaze
-signal elsewhere) - not evidence the feature is broken, just normal sensor noise.
+**Device support - corrected:** this project's bundled SDK package (`PICO Unity)
+IntegrationSDK-214-20230302`, March 2023) has a doc comment on both methods reading `@note
+Available for Neo3 Pro Eye only`, which initially looked like this project's target hardware
+(Pico 4 Enterprise) might not be officially supported. Checking a newer Pico SDK build's source
+directly ([`PXR_EyeTracking.cs`](https://gitup.uni-potsdam.de/sauerbrei1/unity-solarsystem/-/raw/369671ef649ac24eac2591a6c8b803d2af878bdc/pico/Runtime/Scripts/Features/PXR_EyeTracking.cs),
+a third-party mirror, fetched and read directly rather than trusted secondhand) shows the same
+comment was updated to `@note Only supported by PICO Neo3 Pro Eye, PICO 4 Pro, and PICO 4
+Enterprise` - the bundled package's comment is just stale, not an accurate current support list.
+This API is officially supported on this hardware.
 
-**Current state:** functional but visually unpolished - the reference frame and both eye
-indicators are plain placeholder squares (no sprite assigned yet), and advancing to calibration
-is a manual "Continue" button rather than an automatic stability check (e.g. "both eyes centered
-for N consecutive frames"). Both are reasonable next steps once the core signal was confirmed
-real, not designed in up front on a guess.
+**Current status: implementation correct, verified working once, currently blocked by a
+hardware/driver fault - not a bug in this project.** On-device testing first showed real,
+distinct, stable per-eye values (e.g. left `~0.36/0.67`, right `~0.58/0.62`, frame-to-frame
+jitter of only ~0.01-0.02). Every session since, both eyes have returned exactly `(0,0,0)`
+(`valid=true`) instead. This was narrowed down methodically, ruling out one cause at a time: not
+a bug introduced by any later script change (reverted to the byte-for-byte original working
+version - still stuck); not fixed by a full device reboot; not fixed by re-granting the runtime
+eye-tracking permission; not fixed by reinstalling the SDK; not the (separately confirmed,
+pre-existing, unrelated) frozen controller-ray issue. The actual root cause was found in
+`adb logcat`, entirely outside this app: `gd32ipdservice` (Pico's native eye/IPD driver) is
+failing to communicate with the physical sensor over UART, retrying and failing on a ~10-second
+loop (`uart_open` → immediate `Uart_Close` → fixed `79 00 00 79` response → `retry_cnt=3 ret=4`).
+That's a hardware/firmware-level fault a Unity app has no ability to cause or fix - the code
+faithfully reflects whatever the driver reports, and the driver currently has nothing real to
+report. Kept in the active build (not shelved) since the implementation itself is correct and
+the feature is meant to work on this hardware - this is a "waiting on a fix outside this
+project" state, not a design dead end.
 
 ### User Calibration
 *Rebuilt for this project - see [What was added](#what-was-added-in-this-project) above.*

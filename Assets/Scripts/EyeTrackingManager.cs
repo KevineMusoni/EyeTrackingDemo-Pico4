@@ -64,9 +64,9 @@ public class EyeTrackingManager : MonoBehaviour
             combineEyeGazeOriginOffset.y += primary2DAxis.y*0.001f;
 
         }
-        // A failed PXR read still writes zero-valued data into its out parameter - TryReadRawGaze
-        // checks all the underlying calls' return values, so a failure skips this frame entirely
-        // and everything keeps last frame's values instead of jumping to zero.
+        // Failed pxr read writes zero-valued data into its out parameter - TryReadRawGaze
+        // checks all the underlying calls' return values, so a failure skips this frame entirely and everything keeps last frame's values instead of jumping to zero.
+       
         if (!GazeReading.TryReadRawGaze(out headPoseMatrix, out combineEyeGazeVector, out combineEyeGazeOrigin))
         {
             return;
@@ -75,26 +75,20 @@ public class EyeTrackingManager : MonoBehaviour
         combineEyeGazeOrigin += combineEyeGazeOriginOffset;
         combineEyeGazeOriginInWorldSpace = originPoseMatrix.MultiplyPoint(headPoseMatrix.MultiplyPoint(combineEyeGazeOrigin));
 
-        // Per-eye diagnostic - checks whether one eye is tracking worse than the other, vs. the
+        // Per-eye diagnostic - checks one eye is tracking worse than the other, vs. the
         // combined gaze just reflecting normal ocular dominance.
         PXR_EyeTracking.GetLeftEyePoseStatus(out leftEyeStatus);
         PXR_EyeTracking.GetRightEyePoseStatus(out rightEyeStatus);
         PXR_EyeTracking.GetLeftEyeGazeOpenness(out float leftOpenness);
         PXR_EyeTracking.GetRightEyeGazeOpenness(out float rightOpenness);
         Debug.Log($"[EyeTrackingManager] L status={leftEyeStatus} openness={leftOpenness:F2} | R status={rightEyeStatus} openness={rightOpenness:F2}");
-
-        // Correction applied to combineEyeGazeVector (LOCAL) BEFORE the world-space transform,
-        // not after - CalibrationCorrectionLocal is fit in this same local frame, so applying
-        // it here means it rides along with head rotation instead of being a fixed room
-        // direction that only stayed accurate at the exact orientation calibration happened in.
-        // Safe unconditionally: defaults to Quaternion.identity (no-op) if Calibration.unity
-        // never ran, e.g. opening this scene directly for a quick Editor test.
+        
         Vector3 correctedGazeVectorLocal = CalibrationManager.CalibrationCorrectionLocal * combineEyeGazeVector;
         Vector3 correctedGazeVectorWorld = originPoseMatrix.MultiplyVector(headPoseMatrix.MultiplyVector(correctedGazeVectorLocal));
 
         SpotLight.transform.position = combineEyeGazeOriginInWorldSpace;
         SpotLight.transform.rotation = Quaternion.LookRotation(correctedGazeVectorWorld, Vector3.up);
-
+        
         GazeTargetControl(combineEyeGazeOriginInWorldSpace, correctedGazeVectorWorld);
 
         string report = "Gaze Report (seconds looked at each object):\n\n";

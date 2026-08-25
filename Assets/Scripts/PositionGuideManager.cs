@@ -1,141 +1,185 @@
+using System.Collections;
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI;
-using TMPro;
 using Unity.XR.PXR;
 
 // Live headset-fit guide, shown before Calibration.unity loads. Reads Pico's per-eye position-
 // guide signal (normalized 0-1, ideally centered at 0.5/0.5) and moves UI indicators to match,
 // helping the user to visually adjust fit before calibration starts.
 //
-// UNVERIFIED HARDWARE SUPPORT: PXR_EyeTracking.GetLeftEyePositionGuide/GetRightEyePositionGuide
-// are documented "Available for Neo3 Pro Eye only" - this headset (Pico 4 Enterprise) isn't in - tested on pico 4 enterprise, valid: true
-// that list. The per-frame log line below is the actual evidence for whether it works here:
-// consistently false, or true with static/nonsense values, means this isn't usable on this
-// hardware and this scene should be skipped/removed rather than shipped half-working.
-
+// PXR_EyeTracking.GetLeftEyePositionGuide/GetRightEyePositionGuide is officially supported on
+// this hardware - this project's bundled SDK package (2.1.4, March 2023) has a stale doc
+// comment saying "Neo3 Pro Eye only," but a newer SDK build's doc comment confirms PICO 4 Pro
+// and PICO 4 Enterprise are supported too. Verified working once on-device (real, distinct,
+// stable per-eye values); since then, consistently stuck at (0,0,0) despite valid=true - traced
+// to gd32ipdservice (the native eye/IPD driver) failing UART communication with the physical
+// sensor, confirmed via adb logcat outside this app entirely. That's a hardware/driver fault,
+// not a bug in this script or an unsupported-device situation - see README for the full
+// diagnosis and troubleshooting steps tried.
+//
+// Pass/fail is judged by the backend, not the user: each eye's live indicator is compared against
+// its own fixed checker marker, in on-screen pixels, and the scene auto-advances once both eyes
+// stay close enough for a moment.
 public class PositionGuideManager : MonoBehaviour
 {
     [Header("Scene Flow")]
     [SerializeField] private string calibrationSceneName = "Calibration";
 
     [Header("UI")]
-    // Both eyes' positions are averaged into ONE indicator, rather than shown as two separate
-    // dots - simpler to read at a glance ("is the single dot centered?"), at the cost of not
-    // being able to tell which specific eye is off if only one is (averaging can partially
-    // cancel out a real asymmetric fit issue).
-    [SerializeField] private RectTransform combinedIndicator;
-    [SerializeField] private Button continueButton;
+    [SerializeField] private RectTransform leftEyeIndicator;
+    [SerializeField] private RectTransform rightEyeIndicator;
+    [SerializeField] private RectTransform leftCenterTarget;
+    [SerializeField] private RectTransform rightCenterTarget;
+    [SerializeField] private RectTransform leftChecker;
+    [SerializeField] private RectTransform rightChecker;
 
     // Maps the 0-1 normalized position's offset from center into the frame graphic's actual
     // pixel size - tune to match whatever frame texture ends up used.
     [SerializeField] private float movementMultiplier = 200f;
 
-    // Pico's documented axes ((0,0) = upper-right, (1,1) = lower-left) don't necessarily match
-    // Unity UI's on-screen axes (+X right, +Y up) - flip whichever axis moves the wrong way in
-    // practice (deliberately tilt/shift the headset one known direction and check the dot moves
-    // the way you'd expect; if not, flip the matching toggle here).
-    [SerializeField] private bool invertX;
-    [SerializeField] private bool invertY;
+    [Header("Pass Condition")]
+    // How close, in on-screen pixels, the indicator must be to its checker to count as "centered."
+    [SerializeField] private float pixelTolerance = 30f;
 
-    [Header("Result Feedback")]
+    // Both eyes must stay within tolerance for this many consecutive frames before passing - a
+    // tracking dropout (e.g. a blink) holds this steady instead of resetting it, but time spent
+    // visibly off-target decays it, so the count reflects sustained fit rather than a lucky frame.
+    [SerializeField] private int requiredStableFrames = 60;
+
+    [Header("Pass Animation")]
+    // How long the dots take to visibly glide onto their checkers once a pass is detected.
+    [SerializeField] private float snapDuration = 0.4f;
+
+    // Reused for both the guide instructions and the pass message - swapped to passMessage once
+    // the dots lock onto their checkers.
     [SerializeField] private TMP_Text resultText;
-    // How close to the documented center (0.5, 0.5) counts as "positioned correctly," in the
-    // same normalized 0-1 units the API returns - both eyes converging near (0,0) offset is
-    // what a correctly-worn headset looks like, since each eye is independently centered in
-    // its own sensor at that point. Untuned starting guess.
-    [SerializeField] private float centeredThreshold = 0.05f;
+    [SerializeField] private string passMessage = "Headset positioned correctly";
 
-    private void Start()
-    {
-        if (continueButton != null)
-        {
-            continueButton.onClick.AddListener(LoadCalibrationScene);
-        }
-    }
+    // How long the pass message stays on screen before the scene actually loads.
+    [SerializeField] private float messageDuration = 4f;
+
+    private int stableFrameCount;
+    private bool hasPassed;
 
     private void Update()
     {
+        if (hasPassed)
+        {
+            return;
+        }
+
         bool leftValid = PXR_EyeTracking.GetLeftEyePositionGuide(out Vector3 leftPosition);
         bool rightValid = PXR_EyeTracking.GetRightEyePositionGuide(out Vector3 rightPosition);
 
         Debug.Log($"[PositionGuideManager] left valid={leftValid} pos={leftPosition} | right valid={rightValid} pos={rightPosition}");
 
-        bool bothValid = leftValid && rightValid;
-        // Simple midpoint of the two raw positions - only meaningful once both eyes have a
-        // valid reading this frame, same as GazeReading's "all-or-nothing" validity pattern
-        // elsewhere in this project.
-        Vector3 combinedPosition = (leftPosition + rightPosition) / 2f;
+        Vector2 leftBase = leftCenterTarget != null ? leftCenterTarget.anchoredPosition : Vector2.zero;
+        Vector2 rightBase = rightCenterTarget != null ? rightCenterTarget.anchoredPosition : Vector2.zero;
 
-        // for debugging, in log. Knowing the positions of the left and right eye
-        if (bothValid)
+        Vector2 leftDotPos = UpdateIndicator(leftEyeIndicator, leftValid, leftPosition, leftBase);
+        Vector2 rightDotPos = UpdateIndicator(rightEyeIndicator, rightValid, rightPosition, rightBase);
+
+        bool leftCentered = leftValid && IsOnChecker(leftDotPos, leftBase, leftChecker);
+        bool rightCentered = rightValid && IsOnChecker(rightDotPos, rightBase, rightChecker);
+
+        if (leftCentered && rightCentered)
         {
-            float leftDistance = DistanceFromCenter(leftPosition);
-            float rightDistance = DistanceFromCenter(rightPosition);
-            Debug.Log($"[PositionGuideManager] per-eye distance from center: left={leftDistance:F3} right={rightDistance:F3} asymmetry={Mathf.Abs(leftDistance - rightDistance):F3}");
+            stableFrameCount++;
+            if (stableFrameCount >= requiredStableFrames)
+            {
+                hasPassed = true;
+                Vector2 leftCheckerPos = leftBase + (leftChecker != null ? leftChecker.anchoredPosition : Vector2.zero);
+                Vector2 rightCheckerPos = rightBase + (rightChecker != null ? rightChecker.anchoredPosition : Vector2.zero);
+                StartCoroutine(PlayPassAnimationThenLoad(leftCheckerPos, rightCheckerPos));
+            }
         }
-
-        float distanceFromCenter = UpdateIndicator(combinedIndicator, bothValid, combinedPosition);
-
-        UpdateResultText(bothValid, distanceFromCenter);
+        else if (!leftValid || !rightValid)
+        {
+            // Tracking dropout (e.g. a blink) - hold progress
+        }
+        else
+        {
+            // Both eyes tracked but off-target
+            stableFrameCount = Mathf.Max(0, stableFrameCount - 1);
+        }
     }
 
-    // Returns how far this eye's raw position is from the documented center (0.5, 0.5), in the
-    // same normalized 0-1 units the API returns - independent of invertX/invertY, which only
-    // flip on-screen DIRECTION for display, not the actual distance.
-    private float UpdateIndicator(RectTransform indicator, bool valid, Vector3 position)
+    private bool IsOnChecker(Vector2 dotPosition, Vector2 basePosition, RectTransform checker)
     {
-        if (indicator != null)
+        if (checker == null)
         {
-            indicator.gameObject.SetActive(valid);
-        }
-        if (!valid)
-        {
-            return float.PositiveInfinity;
+            return false;
         }
 
+        Vector2 checkerPosition = basePosition + checker.anchoredPosition;
+        return Vector2.Distance(dotPosition, checkerPosition) <= pixelTolerance;
+    }
+
+    private Vector2 UpdateIndicator(RectTransform indicator, bool valid, Vector3 position, Vector2 basePosition)
+    {
+        if (indicator == null)
+        {
+            return basePosition;
+        }
+
+        indicator.gameObject.SetActive(valid);
+        if (!valid)
+        {
+            return indicator.anchoredPosition;
+        }
+
+        // basePosition is that eye's own target's position, so a perfectly centered reading (0.5,
+        // 0.5) renders the dot exactly on its target - not always at canvas center regardless of
+        // where the target actually sits.
         Vector2 offsetFromCenter = new Vector2(position.x - 0.5f, position.y - 0.5f);
-        if (indicator != null)
-        {
-            Vector2 displayOffset = offsetFromCenter;
-            if (invertX)
-            {
-                displayOffset.x *= -1f;
-            }
-            if (invertY)
-            {
-                displayOffset.y *= -1f;
-            }
-            indicator.anchoredPosition = displayOffset * movementMultiplier;
-        }
-
-        return offsetFromCenter.magnitude;
+        indicator.anchoredPosition = basePosition + offsetFromCenter * movementMultiplier;
+        return indicator.anchoredPosition;
     }
 
-    private void UpdateResultText(bool valid, float distanceFromCenter)
+
+    private IEnumerator PlayPassAnimationThenLoad(Vector2 leftTarget, Vector2 rightTarget)
     {
-        if (resultText == null)
+        Vector2 leftStart = leftEyeIndicator != null ? leftEyeIndicator.anchoredPosition : leftTarget;
+        Vector2 rightStart = rightEyeIndicator != null ? rightEyeIndicator.anchoredPosition : rightTarget;
+
+        float elapsed = 0f;
+        while (elapsed < snapDuration)
         {
-            return;
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / snapDuration);
+
+            if (leftEyeIndicator != null)
+            {
+                leftEyeIndicator.anchoredPosition = Vector2.Lerp(leftStart, leftTarget, t);
+            }
+
+            if (rightEyeIndicator != null)
+            {
+                rightEyeIndicator.anchoredPosition = Vector2.Lerp(rightStart, rightTarget, t);
+            }
+
+            yield return null;
         }
 
-        if (!valid)
+        if (leftEyeIndicator != null)
         {
-            resultText.text = "Waiting for eye tracking...";
-            resultText.color = Color.white;
-            return;
+            leftEyeIndicator.anchoredPosition = leftTarget;
         }
 
-        bool centered = distanceFromCenter <= centeredThreshold;
-        resultText.text = centered ? "Headset positioned correctly" : "Adjust your headset until the dot is centered";
-        resultText.color = centered ? Color.green : Color.yellow;
-    }
+        if (rightEyeIndicator != null)
+        {
+            rightEyeIndicator.anchoredPosition = rightTarget;
+        }
 
-    // helper
+        if (resultText != null)
+        {
+            resultText.text = passMessage;
+        }
 
-    private static float DistanceFromCenter(Vector3 position)
-    {
-        return new Vector2(position.x - 0.5f, position.y - 0.5f).magnitude;
+        yield return new WaitForSeconds(messageDuration);
+
+        LoadCalibrationScene();
     }
 
     private void LoadCalibrationScene()

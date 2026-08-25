@@ -3,7 +3,7 @@
     "m_SelectedPackage": {
         "deviceId": "PA8E50MGH2020230D",
         "name": "com.DefaultCompany.PICOEyeTracking",
-        "processId": 19580,
+        "processId": 24834,
         "exited": false
     },
     "m_SelectedPriority": 0,
@@ -53,18 +53,6 @@
         {
             "deviceId": "PA8E50MGH2020230D",
             "name": "com.DefaultCompany.PICOEyeTracking",
-            "processId": 7735,
-            "exited": true
-        },
-        {
-            "deviceId": "PA8E50MGH2020230D",
-            "name": "com.DefaultCompany.PICOEyeTracking",
-            "processId": 7743,
-            "exited": true
-        },
-        {
-            "deviceId": "PA8E50MGH2020230D",
-            "name": "com.DefaultCompany.PICOEyeTracking",
             "processId": 8392,
             "exited": true
         },
@@ -78,6 +66,18 @@
             "deviceId": "PA8E50MGH2020230D",
             "name": "com.DefaultCompany.PICOEyeTracking",
             "processId": 19580,
+            "exited": true
+        },
+        {
+            "deviceId": "PA8E50MGH2020230D",
+            "name": "com.DefaultCompany.PICOEyeTracking",
+            "processId": 20627,
+            "exited": true
+        },
+        {
+            "deviceId": "PA8E50MGH2020230D",
+            "name": "com.DefaultCompany.PICOEyeTracking",
+            "processId": 24834,
             "exited": false
         }
     ],
@@ -132,7 +132,7 @@
         "Behavior": 0
     },
     "m_FilterOptions": {
-        "m_Filter": "calibrationManager",
+        "m_Filter": "",
         "m_UseRegularExpressions": false,
         "m_MatchCase": false
     },

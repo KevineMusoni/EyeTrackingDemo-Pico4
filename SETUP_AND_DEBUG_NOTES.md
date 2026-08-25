@@ -29,6 +29,8 @@ Cloned `picoxr/EyeTrackingDemo` → `E:\Unity Projects\EyeTrackingDemo`. Fixed t
   ```
   adb shell pm grant com.DefaultCompany.PICOEyeTracking com.picovr.permission.EYE_TRACKING
   ```
+
+  
 - **Confirmed working now.**
 
 ## Vector vs Point (gaze data display). 
@@ -316,18 +318,33 @@ good improvement, confirmed as the right direction.
 - [x] Add a headset-position/fit guidance step before calibration, similar to Ocumen's
   "Position Guide" stage (see earlier research this session on `GetLeftEyePositionGuide`/
   `GetRightEyePositionGuide` - Neo3 Pro Eye only per SDK docs, unverified on Pico 4 Enterprise)
-  // done -> VERIFIED WORKING on Pico 4 Enterprise despite the Neo3-only doc note - real,
-  distinct, stable per-eye values confirmed on-device (e.g. left ~0.36/0.67, right ~0.58/0.62,
-  jitter ~0.01-0.02 frame to frame, occasional single-frame (0,0,0) dropout is normal/transient,
-  same as GazeReading's own occasional rejections elsewhere). New PositionGuideManager.cs +
-  PositionGuide.unity scene (duplicated from Calibration.unity, own XR rig), loads FIRST in
-  Build Settings before Calibration.unity. UI: Frame + LeftEyeIndicator + RightEyeIndicator
-  (plain placeholder squares so far, no sprites assigned) + Continue button (manual advance,
-  no auto-stability-gating yet - v1 kept simple per established pattern). User confirmed
-  "working as expected" on-device. Still TODO: swap in real sprites (frame outline + dot/aim
+  // done (implementation) -> New PositionGuideManager.cs + PositionGuide.unity scene
+  (duplicated from Calibration.unity, own XR rig), loads FIRST in Build Settings before
+  Calibration.unity. UI: Frame + LeftEyeIndicator + RightEyeIndicator (plain placeholder
+  squares, no sprites) + Continue button.
+
+  Device support corrected: bundled SDK (2.1.4, Mar 2023) doc comment says "Neo3 Pro Eye only"
+  - checked a newer SDK build's source directly, comment updated to "Neo3 Pro Eye, PICO 4 Pro,
+  and PICO 4 Enterprise" - bundled comment is just stale, API is officially supported here.
+
+  Session 1: VERIFIED WORKING - real, distinct, stable per-eye values (left ~0.36/0.67, right
+  ~0.58/0.62, jitter ~0.01-0.02 frame to frame).
+
+  Every session SINCE: stuck at exactly (0,0,0) both eyes, valid=true. Ruled out one cause at a
+  time: not any later script change (reverted to byte-for-byte original, still stuck); not
+  fixed by full device reboot; not fixed by re-granting EYE_TRACKING permission; not fixed by
+  SDK reinstall; not the frozen controller-ray issue (confirmed separate/pre-existing). ROOT
+  CAUSE found in adb logcat, outside this app entirely: gd32ipdservice (native eye/IPD driver)
+  failing UART comms with the physical sensor on a ~10s retry loop (uart_open -> immediate
+  Uart_Close -> fixed "79 00 00 79" response -> retry_cnt=3 ret=4). Hardware/driver fault, not
+  fixable from app code. NOT shelved - kept in active Build Settings, implementation is correct
+  and verified once, this is "blocked on external hardware issue" not a design dead end.
+
+  Still TODO once hardware issue clears: swap in real sprites (frame outline + dot/aim
   graphics, Tobii's sample has reference art not to be reused directly), tune
   movementMultiplier against real observed ranges, consider holding last-good position on a
-  (0,0,0)-looking dropout frame instead of snapping the dot to the corner.
+  (0,0,0)-looking dropout frame instead of snapping the dot to the corner, re-add
+  auto-stability-advance (was implemented then reverted during debugging, see git history).
 
   
 
@@ -337,4 +354,60 @@ good improvement, confirmed as the right direction.
 
 **Reference data point**: calibration success criteria was **≤3° bias AND
 ≤1° precision** - notably a two-part criterion (both bias and precision), whereas today's system only measures bias/residual, precision isn't tracked at all yet
+
+## 3D stereo surgery video on `SurgeryVideoScreen` (with gaze heatmap over it)
+
+**Goal**: replace the test objects on `SurgeryVideoScreen` with a real 3840x1080 side-by-side
+stereo H.264 video (`LAR_Surgery_3D_Robot_SEALG_v01.mp4`), while keeping the existing
+`MeshGazeHeatmap` overlay working on top of it, unchanged.
+
+**Attempt 1 - Unity `VideoPlayer` + `RenderTexture` → material**: prepared/played cleanly
+(`prepareCompleted`/`started` fired, correct 3840x1080 frame size, zero errors in logcat) but
+never visibly displayed a frame on-device - screen stayed black, heatmap still worked fine on
+top of it. Root cause not fully pinned down but matches known Unity Issue Tracker reports of
+`RenderTexture` format/sampling problems on Android+Vulkan.
+
+**Attempt 2 - AVPro Video v3**: same symptom (clean decode, nothing visible). Source-level
+read of AVPro's `Resampler.cs` found it uses a plain `Graphics.Blit` with no OES-aware shader to
+copy Android's external/YCbCr video texture into a regular `RenderTexture` - silently produces
+blank output on this device's texture format. Disabling the resampler didn't fix display either.
+**Abandoned and fully reverted** (all AVPro assets/scripts removed, confirmed via `git status`
+and grep for dangling references) rather than keep debugging a third-party plugin against an
+undocumented device-specific texture quirk.
+
+**Attempt 3 - PICO compositor-layer External Surface (current, working)**: bypasses Unity's
+render/texture/shader pipeline entirely - hands the video decoder's raw Android `Surface`
+straight to PICO's system compositor via `PXR_OverLay` (`Unity.XR.PXR`, already in the bundled
+SDK). Playback itself is driven by PICO's own reference ExoPlayer-backed plugin
+(`playvideo.jar`, class `com.pico.exoplayerdemo.PlayVideo`, from
+`github.com/picoxr/Overlay-Demo-UnityXR`), called via raw `AndroidJNI`.
+
+- New: `Assets/Scripts/SurgeryVideoOverlayPlayer.cs` (`[RequireComponent(typeof(PXR_OverLay))]`
+  on `SurgeryVideoScreen`) - sets `overlayShape = Quad`, `isExternalAndroidSurface = true`,
+  `externalAndroidSurface3DType = LeftRight` (matches the side-by-side stereo source), calls
+  `overlay.CreateExternalSurface()`, then on the `externalAndroidSurfaceObjectCreated` callback
+  calls `PlayVideo.playVideo(activity, path, surface)` via JNI with
+  `Application.persistentDataPath + "/" + videoFileName`.
+- New: `Assets/Plugins/Android/` - `playvideo.jar` + 5 ExoPlayer 2.11.5 `.aar`s, downloaded
+  directly from PICO's official repo (verified valid ZIP archives via magic-byte check).
+- Removed: the old `VideoPlayer`/`VideoPlayerDebugLogger` components from `SurgeryVideoScreen`
+  (would have decoded the same file twice for no reason).
+- `PXR_OverLay` auto-disables its own GameObject's `MeshRenderer` on Android builds, so
+  `SurgeryVideoMAT`/`SurgeryVideoRT`/the custom stereo shaders are now dead on-device (left in
+  place only for Editor preview - not cleaned up yet).
+- Video file must exist at `Application.persistentDataPath` on-device
+  (`/storage/emulated/0/Android/data/com.DefaultCompany.PICOEyeTracking/files/`) -
+  confirmed present via `adb shell ls -la`, pushed with `adb push` if missing.
+- **Confirmed working on-device**: video decodes and displays correctly, stereo pair visible.
+
+**Bug found: heatmap invisible once video started displaying**. `PXR_OverLay.overlayType`
+defaults to `Overlay`, which composites the video **in front of the entire normal eye-buffer
+render** - not just in front of objects behind it in 3D space. Since `SurgeryVideoScreen_HeatOverlay`
+(the heatmap quad) still renders normally through Unity's regular pipeline into that eye buffer,
+it was being drawn correctly but buried underneath the compositor's video layer regardless of
+its actual depth. Dwell-time tracking on `SurgeryVideoScreen` kept working throughout (proves the
+gaze raycast/UV pipeline was never broken - purely a compositing-order display issue).
+**Fix**: `SurgeryVideoOverlayPlayer.Awake()` now sets `overlay.overlayType =
+PXR_OverLay.OverlayType.Underlay`, so the video composites *behind* the normal eye-buffer
+render and the heatmap quad draws on top of it as intended. Not yet re-verified on-device.
 

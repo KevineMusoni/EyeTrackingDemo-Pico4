@@ -796,7 +796,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 613af3b23e032c74fa98833158a0fe19, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  mainSceneName: RoleSelect
+  mainSceneName: EyeTrackingDemo
   calibrationMarker: {fileID: 556578863}
   xrOrigin: {fileID: 993520968}
   statusText: {fileID: 249436148}

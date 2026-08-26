@@ -512,9 +512,39 @@ from before the latest script change.
 **Later (not this pass):**
 - [ ] Video playback + sync in the review scene, if/when needed.
 - [ ] Progressive/animated replay instead of instant full reveal.
-- [ ] Dual heatmap (expert + trainee shown together), once single-recording playback works.
 - [ ] `SurgeryHeatmapOverlayLayer.SetVisible(bool)` - hide heatmap during a silent first pass.
 - [ ] Persist calibration validation residual into the saved session data.
+
+## Specialist vs trainee comparison (in progress)
+
+Goal: record one constant "specialist" reference session, then show it overlaid (two distinct
+colors, same frame) against a trainee's own session, with a labeled legend.
+
+**Step 1 - role selection - code done, scene not yet built.**
+- [x] `SessionRoleManager.cs` - plain static utility (`IsSpecialist`), same cross-scene pattern
+      as `CalibrationManager.CalibrationCorrectionLocal`/`IsCalibrated`.
+- [x] `RoleSelectUI.cs` - `SelectSpecialist()`/`SelectTrainee()` for two buttons' `OnClick()`,
+      sets the role then `SceneManager.LoadScene("EyeTrackingDemo")`.
+- [x] `CalibrationManager.mainSceneName` changed `"EyeTrackingDemo"` -> `"RoleSelect"` (both the
+      script default and `Calibration.unity`'s serialized value) - calibration now hands off to
+      role selection first, not straight into the demo.
+- [ ] Build `RoleSelect.unity` in the Editor (duplicate `Calibration.unity`, strip calibration
+      objects, add Canvas + 2 buttons, wire to `RoleSelectUI`), add to Build Settings between
+      `Calibration` and `EyeTrackingDemo`.
+
+**Step 2 - role-aware recording - done.** `MeshGazeHeatmap.Start()` now branches on
+`SessionRoleManager.IsSpecialist`: specialist sessions always write to a fixed
+`specialist_reference.json` (always overwritten, never auto-deleted); trainee sessions keep the
+existing timestamped/auto-consumed behavior, unchanged.
+
+**Step 3 - dual-color comparison texture - not started.** Needs a second `Texture2D` buffer on
+`MeshGazeHeatmap`, a `PaintAtColor(uv, radius, amount, color, target)` variant (fixed color per
+source instead of the blue-red gradient), and a combine step merging both buffers into what's
+actually displayed. New loader (or extended `GazeReviewLoader`) feeds `specialist_reference.json`
+into one buffer and the trainee's latest session into the other.
+
+**Step 4 - legend - not started.** TMP text near the comparison quad, colors matching step 3's
+`PaintAtColor()` calls exactly.
 - [ ] Split watch vs. review into the real sequential flow (separate scene/step), rather than
       both living in `EyeTrackingDemo.unity` and racing at the same launch.
 

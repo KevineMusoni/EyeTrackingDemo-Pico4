@@ -20,7 +20,9 @@ using System.Collections.Generic;
 public class CalibrationManager : MonoBehaviour
 {
     [Header("Multi-Scene Setup")]
-    [SerializeField] private string mainSceneName = "EyeTrackingDemo";
+    // Goes to role selection first now, not straight into the demo - see RoleSelectUI.cs /
+    // SessionRoleManager.cs.
+    [SerializeField] private string mainSceneName = "RoleSelect";
 
     [Header("References")]
     [SerializeField] private Transform calibrationMarker;

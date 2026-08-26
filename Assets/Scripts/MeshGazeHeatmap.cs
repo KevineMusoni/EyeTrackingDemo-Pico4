@@ -108,7 +108,16 @@ public class MeshGazeHeatmap : MonoBehaviour
         {
             string dir = Path.Combine(Application.persistentDataPath, "GazeRecordings");
             Directory.CreateDirectory(dir);
-            recordingFilePath = Path.Combine(dir, $"{recordingId}_{DateTime.Now:yyyyMMdd_HHmmss}.json");
+
+            // Specialist recordings always overwrite the same fixed file - there's only ever
+            // one current reference to compare trainees against, and GazeReviewLoader must load
+            // it by that exact explicit name so it's never swept up and deleted by the
+            // "most recent file" trainee-loading path. Trainee sessions keep the existing
+            // timestamped-and-auto-consumed behavior, unchanged.
+            recordingFilePath = SessionRoleManager.IsSpecialist
+                ? Path.Combine(dir, "specialist_reference.json")
+                : Path.Combine(dir, $"{recordingId}_{DateTime.Now:yyyyMMdd_HHmmss}.json");
+
             InvokeRepeating(nameof(SaveRecording), autosaveIntervalSeconds, autosaveIntervalSeconds);
         }
     }

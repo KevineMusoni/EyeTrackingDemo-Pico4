@@ -109,7 +109,7 @@ public class EyeTrackingManager : MonoBehaviour
 
             if (hitinfo.collider.TryGetComponent(out MeshGazeHeatmap heatmap))
             {
-                // Physics.SphereCast doesn't populate RaycastHit.textureCoord - only
+                // Physics.SphereCast doesn't populate RaycastHit.textureCoord
                 // Physics.Raycast does - so a second raycast along the same ray gets the UV
                 // data, with a same-collider check before trusting it.
                 if (Physics.Raycast(origin, vector, out RaycastHit uvHit, 100f) && uvHit.collider == hitinfo.collider)

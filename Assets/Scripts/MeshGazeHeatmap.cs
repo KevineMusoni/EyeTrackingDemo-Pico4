@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 // Prototype gaze heatmap for a single mesh. Accumulates "heat" into a runtime texture wherever
@@ -28,10 +31,42 @@ public class MeshGazeHeatmap : MonoBehaviour
     [Header("Overlay Display")]
     [SerializeField] private Renderer overlayRenderer;
 
-    // Optional - only set on objects whose overlay quad needs to composite over a PXR_OverLay
-    // External Surface video (e.g. SurgeryVideoScreen_HeatOverlay). Left unassigned on plain
-    // test objects like MadFlower, which render normally with no compositor layer involved.
+    // Only set on objects whose overlay quad needs to composite over a PXR_OverLay
+    // External Surface video (e.g. SurgeryVideoScreen_HeatOverlay). Left unassigned on plain test objects like MadFlower, which render normally with no compositor layer involved.
     [SerializeField] private SurgeryHeatmapOverlayLayer compositorLayer;
+
+    [Header("Recording")]
+    // Off by default - only the objects we actually want session data saved for (e.g.
+    // SurgeryVideoScreen) should have this enabled in the Inspector.
+    [SerializeField] private bool recordSamples = false;
+    [SerializeField] private string recordingId = "session";
+
+    // Testing on this headset normally ends via "adb shell am force-stop", not a graceful
+    // in-app quit - OnApplicationQuit() never fires on a force-stop (it's a hard kill, Android
+    // gives the app no chance to run shutdown code), so relying on it would silently lose every
+    // session. Periodic autosave to a fixed per-session filename means at most a few seconds of
+    // the latest data is ever at risk, regardless of how the app gets closed.
+    [SerializeField] private float autosaveIntervalSeconds = 5f;
+    private string recordingFilePath;
+
+    // 0 = never stop (default - test objects like MadFlower have no video, so there's no
+    // "finished" moment to stop at). Set to the watched segment's length on SurgeryVideoScreen -
+    // once the video's actually over, further gaze hitting that now-static screen isn't
+    // "watching the surgery," it's just noise, and shouldn't keep growing the heatmap or
+    // recording.
+    [SerializeField] private float autoStopAfterSeconds = 0f;
+    private float startTime;
+    private bool hasStopped;
+
+    // x=u, y=v, z=brush radius in pixels - the same values StampAt() already computes, just also
+    // kept around so a session can be saved and later replayed in a review scene.
+    [Serializable]
+    private class GazeRecording
+    {
+        public List<Vector3> samples = new List<Vector3>();
+    }
+
+    private GazeRecording recording = new GazeRecording();
 
     private Texture2D heatTexture;
     private Mesh colliderMesh;
@@ -40,6 +75,7 @@ public class MeshGazeHeatmap : MonoBehaviour
     {
         Debug.Log($"[MeshGazeHeatmap] Start() on '{gameObject.name}' - overlayRenderer={(overlayRenderer != null ? overlayRenderer.name : "NULL")}");
 
+        startTime = Time.time;
         colliderMesh = GetComponent<MeshCollider>().sharedMesh;
 
         heatTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
@@ -67,19 +103,63 @@ public class MeshGazeHeatmap : MonoBehaviour
             compositorLayer.SetHeatTexture(heatTexture);
             Debug.Log($"[MeshGazeHeatmap] Fed heatTexture into compositor layer on '{compositorLayer.name}'.");
         }
+
+        if (recordSamples)
+        {
+            string dir = Path.Combine(Application.persistentDataPath, "GazeRecordings");
+            Directory.CreateDirectory(dir);
+            recordingFilePath = Path.Combine(dir, $"{recordingId}_{DateTime.Now:yyyyMMdd_HHmmss}.json");
+            InvokeRepeating(nameof(SaveRecording), autosaveIntervalSeconds, autosaveIntervalSeconds);
+        }
     }
 
-    // Called once per frame this object is the current gaze target.
+    // This object is the current gaze target. Called once per frame
     public void StampAt(RaycastHit hit)
+    {
+        if (hasStopped)
+        {
+            return;
+        }
+
+        if (autoStopAfterSeconds > 0f && Time.time - startTime >= autoStopAfterSeconds)
+        {
+            hasStopped = true;
+            if (recordSamples)
+            {
+                CancelInvoke(nameof(SaveRecording));
+                SaveRecording();
+                Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' stopped after {autoStopAfterSeconds}s - final save done, no further stamping.");
+            }
+            return;
+        }
+
+        Vector2 uv = hit.textureCoord;
+        int radius = Mathf.RoundToInt(ComputeBrushRadiusPixels(hit.triangleIndex));
+
+        if (recordSamples)
+        {
+            recording.samples.Add(new Vector3(uv.x, uv.y, radius));
+        }
+
+        PaintAt(uv, radius, heatPerSecond * Time.deltaTime);
+    }
+
+    // The actual brush painting, split out from StampAt() so a saved recording can be replayed
+    // (GazeReviewLoader calls this directly with stored uv/radius values) without needing a live
+    // RaycastHit - both live gaze and review playback end up painting through the same code.
+    //
+    // "amount" is an explicit parameter, not computed from Time.deltaTime in here, because
+    // review replay stamps every saved sample in a tight loop - using live Time.deltaTime for
+    // each of those would size every stamp by whatever the REPLAY's current frame time happens
+    // to be, not the real elapsed time each sample originally represented. Live gaze (StampAt)
+    // still passes heatPerSecond * Time.deltaTime, unchanged from before; replay passes a fixed
+    // per-sample amount instead (see GazeReviewLoader).
+    public void PaintAt(Vector2 uv, int radius, float amount)
     {
         if (heatTexture == null) return;
 
-        Vector2 uv = hit.textureCoord;
         int centerX = Mathf.RoundToInt(uv.x * textureSize);
         int centerY = Mathf.RoundToInt(uv.y * textureSize);
-
-        int radius = Mathf.RoundToInt(ComputeBrushRadiusPixels(hit.triangleIndex));
-        float addedThisFrame = heatPerSecond * Time.deltaTime;
 
         for (int y = -radius; y <= radius; y++)
         {
@@ -98,7 +178,7 @@ public class MeshGazeHeatmap : MonoBehaviour
                 float falloff = 1f - (dist / radius);
 
                 Color existing = heatTexture.GetPixel(px, py);
-                float newAlpha = Mathf.Clamp01(existing.a + falloff * addedThisFrame);
+                float newAlpha = Mathf.Clamp01(existing.a + falloff * amount);
 
                 Color heatColor = HeatGradient(newAlpha);
                 heatTexture.SetPixel(px, py, new Color(heatColor.r, heatColor.g, heatColor.b, newAlpha));
@@ -106,6 +186,27 @@ public class MeshGazeHeatmap : MonoBehaviour
         }
 
         heatTexture.Apply();
+    }
+
+    private void OnApplicationQuit()
+    {
+        if (recordSamples)
+        {
+            SaveRecording();
+        }
+    }
+
+    // Overwrites the same file (recordingFilePath, fixed for this whole session, set in Start())
+    // every time this runs - called periodically via InvokeRepeating, not just at session end
+    public void SaveRecording()
+    {
+        if (recording.samples.Count == 0 || recordingFilePath == null)
+        {
+            return;
+        }
+
+        File.WriteAllText(recordingFilePath, JsonUtility.ToJson(recording));
+        Debug.Log($"[MeshGazeHeatmap] Autosaved {recording.samples.Count} samples to '{recordingFilePath}'.");
     }
 
     // Works out how many texture pixels correspond to brushRadiusWorldMeters of ACTUAL

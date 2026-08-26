@@ -446,3 +446,84 @@ resizing both `SurgeryVideoScreen` and `SurgeryVideoScreen_HeatOverlay` (kept al
 latter is a duplicate offset slightly in Z to avoid z-fighting rather than scaled up) to
 `{x: 1.7066667, y: 0.96}` - true 16:9, same height, matching the per-eye frame.
 
+## TODO
+
+**Step 1 - save gaze data - done.** `MeshGazeHeatmap.cs` extended directly (no separate recorder
+class): `recordSamples`/`recordingId` fields, samples appended inside `StampAt()` right where
+uv/radius are already computed, `SaveRecording()` writes to
+`GazeRecordings/{recordingId}_{timestamp}.json`. Periodic autosave (`InvokeRepeating`, default
+5s) rather than `OnApplicationQuit()` alone - that callback never fires on `adb shell am
+force-stop`, which is how this app normally gets closed during testing, so relying
+on it alone would silently lose every session. Enabled on `SurgeryVideoScreen` only.
+
+**Step 2 - review display - done, in `EyeTrackingDemo.unity` (not a separate scene).**
+`GazeReviewScreen`/`GazeReviewScreen_Overlay` added directly to the main scene rather than a new
+`GazeReview.unity` - simpler for now, revisit if/when the real sequential watch-then-review flow
+needs its own scene. `MeshGazeHeatmap.StampAt()` split into `StampAt(RaycastHit)` (live) +
+`PaintAt(uv, radius, amount)` (the actual painting, shared by both live and replay) so replay
+doesn't need a live raycast. New `GazeReviewLoader.cs` loads the most recent (or a named)
+recording and calls `PaintAt()` for every sample - full heatmap appears instantly, no animation.
+
+Setup bugs hit and fixed along the way: `Overlay Renderer` field left unassigned (silently
+meant nothing ever displayed); overlay quad had Unity's default `Standard` material instead of
+`Unlit/Transparent` (new `GazeReviewOverlay_MAT.mat` created, mirroring `HeatOverlay_MAT.mat`);
+`GazeReviewScreen_Overlay`'s transform diverged from the base quad's position/scale (dragged via
+gizmo at some point) - realigned to match exactly, offset only in Z; initial `x: 6` placement
+(copying the `HeatMapTestObject` convention) put it outside the room, moved to `x: 3`;
+`GazeReviewScreen`'s own `MeshCollider` was live, so looking directly at the review screen added
+its own new heat on top of the replayed recording - disabled the collider (`[RequireComponent]`
+only requires it to exist, not be enabled), review is now a non-interactive display only.
+
+**Fresh-build staleness - done.** `GazeRecordings/` lives in `Application.persistentDataPath`,
+so it survives normal rebuilds the same way the video file does - `GazeReviewLoader` kept
+showing whatever was last saved, potentially from a much older test. Fixed: auto-resolved loads
+(blank `recordingFileName`) now get deleted after being read, so each recording is shown at most
+once, on the very next launch after it was saved. Explicitly-named recordings (a future expert
+reference, say) are exempt - only "most recent" auto-loads are consumed.
+
+**Review not updating within the same session - done.** `GazeReviewLoader.Start()` only ever ran
+once, at frame 0 - before anyone had watched anything that session, so no amount of watching
+made it show new data; it could only ever show a PREVIOUS session's leftovers (or nothing).
+Fixed: `Start()` now schedules the load via `Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds)`
+(default 22s - a bit past the ~20s test clip's length plus a beat past the 5s autosave interval),
+instead of loading immediately. Still a one-time load, just delayed long enough for this
+session's own recording to actually exist on disk first.
+
+**Heatmap kept growing after the video ended - done.** Gaze hitting the now-static screen after
+the clip finished was still counted as "watching," pointlessly growing the heatmap/recording
+with meaningless data. Fixed: new `autoStopAfterSeconds` field on `MeshGazeHeatmap` (`0` =
+never stop, the default - test objects like `MadFlower` have no video and no "finished" moment).
+Set to `20` on `SurgeryVideoScreen`, matching the trimmed test clip. Once elapsed time since
+`Start()` passes that, `StampAt()` does one final save, cancels the periodic autosave, and goes
+permanently inert for the rest of the session. **Caveat**: this is a fixed wall-clock number,
+not tied to the video's actual playback state (still no way to query the native ExoPlayer's
+position - same gap noted earlier for `videoTime`) - needs manual updating if the video length
+changes, and would fire early/late if playback ever buffers or stalls.
+
+**Caught during a code review**: the `initialLoadDelaySeconds`/`Invoke` fix above had silently
+reverted back to an immediate-load `Start()` at some point (cause unknown - not from any edit
+made here), which fully explained a heatmap showing up at only ~3s into a session when it should
+have been impossible before ~22s. Only found by re-reading the full file rather than trusting
+memory of what had already been fixed - reapplied. Worth periodically re-reading a file's actual
+current state during a long debugging session rather than assuming earlier fixes are still there,
+and confirming an on-device test is actually running a freshly rebuilt APK, not a leftover one
+from before the latest script change.
+
+**Later (not this pass):**
+- [ ] Video playback + sync in the review scene, if/when needed.
+- [ ] Progressive/animated replay instead of instant full reveal.
+- [ ] Dual heatmap (expert + trainee shown together), once single-recording playback works.
+- [ ] `SurgeryHeatmapOverlayLayer.SetVisible(bool)` - hide heatmap during a silent first pass.
+- [ ] Persist calibration validation residual into the saved session data.
+- [ ] Split watch vs. review into the real sequential flow (separate scene/step), rather than
+      both living in `EyeTrackingDemo.unity` and racing at the same launch.
+
+**Blocked / needs input:**
+- [ ] Structure list for per-structure dwell time (anatomical/instrument regions) - needs
+      clinical contact's input.
+- [ ] Expert recording: captured once and reused, or recaptured per trainee session?
+
+**Deferred:**
+- [ ] Consolidate duplicated calibration write-up further up this file (the narrative section vs.
+      the review-feedback checklist cover a lot of the same ground).
+

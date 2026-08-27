@@ -48,8 +48,15 @@ public class MeshGazeHeatmap : MonoBehaviour
     public Texture2D HeatTexture => heatTexture;
     public Texture2D ComparisonTexture => comparisonTexture;
 
+    // The texture actually displayed when useComparisonBuffer is true (see CombineComparisonBuffers).
+    // Exposed so ComparisonLoader can paint a peak-divergence marker directly onto the final
+    // combined image, after the normal specialist/trainee combine has already happened.
+
+    // adding a timestamps to recorded samples
+    public Texture2D CombinedTexture => combinedTexture;
+
     [Header("Recording")]
-    // Off by default - only the objects we actually want session data saved for (e.g.
+    // Off by default - only the objects wanted session data saved for (e.g.
     // SurgeryVideoScreen) should have this enabled in the Inspector.
     [SerializeField] private bool recordSamples = false;
     [SerializeField] private string recordingId = "session";
@@ -71,12 +78,23 @@ public class MeshGazeHeatmap : MonoBehaviour
     private float startTime;
     private bool hasStopped;
 
-    // x=u, y=v, z=brush radius in pixels - the same values StampAt() already computes, just also
-    // kept around so a session can be saved and later replayed in a review scene.
+    // u/v/radius are the same values StampAt() already computes, kept around so a session can be
+    // saved and later replayed. time is seconds since this object's Start() - added so a saved
+    // recording can be grouped by "what second of the video did this happen in," not just "where
+    // on screen" (see ComparisonLoader's peak-divergence marker, the reason this was added).
+    [Serializable]
+    private class GazeSample
+    {
+        public float u;
+        public float v;
+        public float radius;
+        public float time;
+    }
+
     [Serializable]
     private class GazeRecording
     {
-        public List<Vector3> samples = new List<Vector3>();
+        public List<GazeSample> samples = new List<GazeSample>();
     }
 
     private GazeRecording recording = new GazeRecording();
@@ -88,7 +106,7 @@ public class MeshGazeHeatmap : MonoBehaviour
     {
         Debug.Log($"[MeshGazeHeatmap] Start() on '{gameObject.name}' - overlayRenderer={(overlayRenderer != null ? overlayRenderer.name : "NULL")}");
 
-        startTime = Time.time;
+        startTime = Time.time; // secs elapsed since the object's start
         colliderMesh = GetComponent<MeshCollider>().sharedMesh;
 
         heatTexture = CreateBlankTexture();
@@ -164,7 +182,7 @@ public class MeshGazeHeatmap : MonoBehaviour
 
         if (recordSamples)
         {
-            recording.samples.Add(new Vector3(uv.x, uv.y, radius));
+            recording.samples.Add(new GazeSample { u = uv.x, v = uv.y, radius = radius, time = Time.time - startTime });
         }
 
         PaintAt(uv, radius, heatPerSecond * Time.deltaTime);

@@ -28,9 +28,18 @@ public class GazeReviewLoader : MonoBehaviour
     [SerializeField] private float initialLoadDelaySeconds = 22f;
 
     [Serializable]
+    private class GazeSample
+    {
+        public float u;
+        public float v;
+        public float radius;
+        public float time;
+    }
+
+    [Serializable]
     private class SavedRecording
     {
-        public List<Vector3> samples = new List<Vector3>();
+        public List<GazeSample> samples = new List<GazeSample>();
     }
 
     private void Start()
@@ -62,14 +71,14 @@ public class GazeReviewLoader : MonoBehaviour
 
         SavedRecording recording = JsonUtility.FromJson<SavedRecording>(File.ReadAllText(path));
 
-        foreach (Vector3 sample in recording.samples)
+        foreach (GazeSample sample in recording.samples)
         {
-            heatmap.PaintAt(new Vector2(sample.x, sample.y), Mathf.RoundToInt(sample.z), amountPerSample);
+            heatmap.PaintAt(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample);
         }
 
         Debug.Log($"[GazeReviewLoader] Replayed {recording.samples.Count} samples from '{path}'.");
 
-        // Deliberately does NOT delete the auto-resolved file here anymore. ComparisonScreen's
+        // Does not delete the auto-resolved file here anymore. ComparisonScreen's
         // ComparisonLoader also auto-resolves and reads this exact same trainee file, on a
         // slightly longer delay so it always runs after this one - if this loader deleted it
         // immediately, ComparisonLoader would find nothing and come up blank. Cleanup is

@@ -509,6 +509,49 @@ current state during a long debugging session rather than assuming earlier fixes
 and confirming an on-device test is actually running a freshly rebuilt APK, not a leftover one
 from before the latest script change.
 
+**Heatmap painting performance - fixed, two passes.**
+
+Pass 1, reported as "heatmaps are a bit slow moving" (live gaze felt like it lagged behind actual
+eye position): matched what the file's own top-of-class comment had already flagged -
+`PaintPixels()` called `Texture2D.GetPixel`/`SetPixel` individually for every pixel in the brush
+circle (up to ~16,600 calls at the 64px radius cap), every single frame while gazing at an object
+- real per-call API overhead, done synchronously on the main thread, competing with the XR render
+loop. Fixed by giving each texture (`heatTexture`, `comparisonTexture`, `combinedTexture`) its own
+plain `Color[]` backing array (`heatPixels`/`comparisonPixels`/`combinedPixels`) that
+`PaintPixels()` now reads/writes via direct array indexing instead of the Texture2D API.
+
+One bug caught while making this change (not yet in any build, fixed before it could ship):
+`CombineComparisonBuffers()` used to compute its result into a local array and `SetPixels()` it
+straight onto `combinedTexture`, without touching the new `combinedPixels` backing array. Since
+the peak-divergence marker (`PaintAtColor` onto `CombinedTexture`) now paints through
+`combinedPixels`, not the texture directly, it would have painted onto a stale blank buffer and
+then overwritten the just-combined green/yellow image with it - marker visible, everything else
+gone. `CombineComparisonBuffers()` now reads from `heatPixels`/`comparisonPixels` and writes
+`combinedPixels` directly, keeping it as the source of truth.
+
+Pass 2, reported as a black flash appearing for a couple seconds right as `GazeReviewScreen`
+loaded a session's replay: the array fix above only sped up the per-pixel math inside each
+`PaintPixels()` call - it didn't touch how often that call's `SetPixels`+`Apply()` (a full
+512x512 GPU texture upload) actually runs. `GazeReviewLoader`/`ComparisonLoader` both replay a
+saved recording by calling a paint method once per sample in a tight `foreach` loop - for a real
+session (~1,300+ samples, per earlier logcat output) that meant 1,300+ full texture uploads
+happening back-to-back within a single method call/frame, which is the kind of main-thread stall
+that shows up as a black compositor frame on a VR headset. Added batched variants -
+`PaintAtBatched`/`PaintAtColorBatched` (paint into the backing array only, skip the upload) plus
+`FlushToGpu(Texture2D)` (does the one real upload) - and switched both loaders' replay loops to
+use them: `GazeReviewLoader` calls `FlushToGpu(heatmap.HeatTexture)` once after its loop (that
+texture IS what's displayed there); `ComparisonLoader`'s `PaintSamples` needs no explicit flush at
+all - `heatTexture`/`comparisonTexture` are never directly displayed on the comparison screen
+(only `combinedTexture` is), and `CombineComparisonBuffers()` already reads those backing arrays
+directly and does its own single upload. `PaintAt`/`PaintAtColor` (used by live gaze, one stamp
+per frame) are untouched - uploading immediately every frame was never the problem there.
+
+Considered instead: progressive/animated reveal (show samples appearing over time rather than all
+at once) - a nicer way to *watch* a heatmap build up, but a bigger change (needs painting spread
+across frames, likely a coroutine) that doesn't by itself fix the freeze, which was really about
+upload *frequency* during a burst, not about revealing the result gradually. Left on the
+"Later" list below as a separate idea, not pursued as the fix for this.
+
 **Later (not this pass):**
 - [ ] Video playback + sync in the review scene, if/when needed.
 - [ ] Progressive/animated replay instead of instant full reveal.
@@ -582,16 +625,35 @@ to run second, making it the sole deleter of the trainee's auto-resolved file. A
 leave the specialist file as the most-recently-written `.json` and risk it being treated as an
 ordinary trainee recording.
 
-**Step 4 - trainee-only gating - done.** Both `GazeReviewLoader.Start()` and
+**Step 4 - trainee-only gating - done, expanded.** Both `GazeReviewLoader.Start()` and
 `ComparisonLoader.Start()` return immediately if `SessionRoleManager.IsSpecialist` - neither
-schedules its load, so nothing displays on either report screen for a specialist session.
+schedules its load, so nothing displays on either report screen for a specialist session. Originally
+this just left the screens present but blank; expanded so a specialist session now fully
+`SetActive(false)`s both `GazeReviewScreen`/`GazeReviewScreen_Overlay` and
+`ReportScreen`/`ReportScreen_Overlay` - the specialist view now shows only `SurgeryVideoScreen`,
+the one thing actually relevant to recording the reference, rather than two empty quads sitting in
+the room. New `MeshGazeHeatmap.OverlayGameObject` property (`overlayRenderer.gameObject`) lets
+each loader reach its sibling overlay object to hide both halves of the screen together.
 
-**Step 5 - legend - not started.** TMP text near the comparison quad, colors matching
-`ComparisonLoader`'s `specialistColor`/`traineeColor` exactly. Left as an Editor step rather than
-a hand-authored scene edit - a 3D `TextMeshPro` component carries enough font-asset/material
-sub-object wiring that hand-writing it correctly without ever opening the Editor is too easy to
-get subtly wrong (unlike the plain Quad+MeshRenderer objects above, which mirror an
-already-verified-working pattern exactly).
+**Step 5 - legend - swatches done, text labels still an Editor step.** Went through two design
+ideas: a real 3D arrow pointing at `ReportScreen` (dropped - too much unverified rotation
+geometry for a hand-authored scene edit, matching the pattern of every other placement issue this
+session), then a simpler "colored swatch + label" legend below the screen instead (reference: a
+chart legend screenshot the user shared - colored circle/square next to each label). Built:
+- [x] `LegendSwatch_Specialist_MAT.mat`/`LegendSwatch_Trainee_MAT.mat` - simple opaque colored
+      materials (mirroring the existing `Green.mat`'s structure), colors matching
+      `ComparisonLoader`'s current `specialistColor`/`traineeColor` exactly (dark green
+      `(0, 0.6, 0)`, gold `(0.85, 0.65, 0)` - update these materials if those colors change again).
+- [x] `ReportScreen_LegendSwatch_Specialist`/`_Trainee` - small flat Quads (scale `0.08 x 0.08`),
+      positioned below `ReportScreen`'s bottom edge at `(4, 0.65, 0.7)` and `(4, 0.65, 1.3)`,
+      same `Y: 90` rotation as `ReportScreen` so they face the same way. Safe to hand-author
+      directly (plain colored Quad, same low-risk pattern as every other quad this session) -
+      unlike text labels, below.
+- [ ] Text labels ("Specialist"/"Trainee") next to each swatch - still an Editor step, same
+      reasoning as before: a 3D `TextMeshPro` component's font-asset/material sub-wiring is too
+      easy to get subtly wrong hand-authored blind. **Not yet placed** - once added, check the
+      swatch positions are actually correct too (`0.7`/`1.3` along Z were computed from
+      `ReportScreen`'s 90 degree rotation mapping local width to world Z, not confirmed by eye).
 - [ ] Split watch vs. review into the real sequential flow (separate scene/step), rather than
       both living in `EyeTrackingDemo.unity` and racing at the same launch.
 

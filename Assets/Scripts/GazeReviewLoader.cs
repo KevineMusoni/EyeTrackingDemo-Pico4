@@ -45,9 +45,16 @@ public class GazeReviewLoader : MonoBehaviour
     private void Start()
     {
         // A specialist session is purely "record the reference" - there's nothing meaningful to
-        // review about their own single session, so this screen stays inactive for them.
+        // review about their own single session, so this screen is hidden entirely for them
+        // (not just left blank) - specialist view should show only the main surgery video
+        // screen, the one thing actually relevant to recording the reference.
         if (SessionRoleManager.IsSpecialist)
         {
+            if (heatmap != null && heatmap.OverlayGameObject != null)
+            {
+                heatmap.OverlayGameObject.SetActive(false);
+            }
+            gameObject.SetActive(false);
             return;
         }
 
@@ -71,14 +78,19 @@ public class GazeReviewLoader : MonoBehaviour
 
         SavedRecording recording = JsonUtility.FromJson<SavedRecording>(File.ReadAllText(path));
 
+        // Batched, not PaintAt - a full texture upload after every single one of potentially
+        // thousands of samples, all within this one method call, was the real cause of the
+        // freeze/black-screen flash reported while this loaded. Paint everything into the
+        // backing array first, then upload to the GPU exactly once via FlushToGpu.
         foreach (GazeSample sample in recording.samples)
         {
-            heatmap.PaintAt(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample);
+            heatmap.PaintAtBatched(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample);
         }
+        heatmap.FlushToGpu(heatmap.HeatTexture);
 
         Debug.Log($"[GazeReviewLoader] Replayed {recording.samples.Count} samples from '{path}'.");
 
-        // Does not delete the auto-resolved file here anymore. ComparisonScreen's
+        // Does not delete the auto-resolved file here anymore. ReportScreen's
         // ComparisonLoader also auto-resolves and reads this exact same trainee file, on a
         // slightly longer delay so it always runs after this one - if this loader deleted it
         // immediately, ComparisonLoader would find nothing and come up blank. Cleanup is

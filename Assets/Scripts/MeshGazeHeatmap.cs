@@ -8,8 +8,12 @@ using UnityEngine;
 // overlay renderer sitting just above the original surface. Wired in from
 // EyeTrackingManager.GazeTargetControl().
 //
-// Uses Texture2D.GetPixel/SetPixel per brush stamp - fine for a first pass at a small brush
-// radius, not fast enough for production (would need SetPixels32/a compute shader for that).
+// PaintPixels() reads/writes a plain in-memory Color[] buffer directly (each texture's
+// heatPixels/comparisonPixels/combinedPixels array) rather than calling Texture2D.GetPixel/
+// SetPixel per pixel - those have real per-call overhead that added up to a visible frame-time
+// cost at large brush radii (up to ~16,600 pixels/stamp at the 64px cap), done every single
+// frame during live gaze. Direct array indexing removes that overhead; SetPixels+Apply (already
+// a bulk upload, not per-pixel) still happens once per stamp at the end, same as before.
 [RequireComponent(typeof(MeshCollider))]
 public class MeshGazeHeatmap : MonoBehaviour
 {
@@ -45,15 +49,25 @@ public class MeshGazeHeatmap : MonoBehaviour
     private Texture2D comparisonTexture;
     private Texture2D combinedTexture;
 
+    // In-memory backing buffers for the three textures above, read/written directly by
+    // PaintPixels() instead of going through Texture2D.GetPixel/SetPixel - see the class comment.
+    private Color[] heatPixels;
+    private Color[] comparisonPixels;
+    private Color[] combinedPixels;
+
     public Texture2D HeatTexture => heatTexture;
     public Texture2D ComparisonTexture => comparisonTexture;
 
     // The texture actually displayed when useComparisonBuffer is true (see CombineComparisonBuffers).
     // Exposed so ComparisonLoader can paint a peak-divergence marker directly onto the final
     // combined image, after the normal specialist/trainee combine has already happened.
-
-    // adding a timestamps to recorded samples
     public Texture2D CombinedTexture => combinedTexture;
+
+    // The overlay is a separate sibling GameObject (see GazeReviewScreen/GazeReviewScreen_Overlay,
+    // ReportScreen/ReportScreen_Overlay), not a child of this one - exposed so GazeReviewLoader/
+    // ComparisonLoader hides both halves of their screen together for a specialist session,
+
+    public GameObject OverlayGameObject => overlayRenderer != null ? overlayRenderer.gameObject : null;
 
     [Header("Recording")]
     // Off by default - only the objects wanted session data saved for (e.g.
@@ -106,19 +120,20 @@ public class MeshGazeHeatmap : MonoBehaviour
     {
         Debug.Log($"[MeshGazeHeatmap] Start() on '{gameObject.name}' - overlayRenderer={(overlayRenderer != null ? overlayRenderer.name : "NULL")}");
 
-        startTime = Time.time; // secs elapsed since the object's start
+        startTime = Time.time; // secs elapsed since the object's star
         colliderMesh = GetComponent<MeshCollider>().sharedMesh;
 
-        heatTexture = CreateBlankTexture();
+        heatTexture = CreateBlankTexture(out heatPixels);
 
         // Report screen only: a second source buffer (ComparisonLoader paints the trainee's
         // session into this one, heatTexture holds the specialist reference), plus a third
         // texture that's the actual displayed result of combining both - see
         // CombineComparisonBuffers().
+        
         if (useComparisonBuffer)
         {
-            comparisonTexture = CreateBlankTexture();
-            combinedTexture = CreateBlankTexture();
+            comparisonTexture = CreateBlankTexture(out comparisonPixels);
+            combinedTexture = CreateBlankTexture(out combinedPixels);
         }
 
         Texture2D displayTexture = useComparisonBuffer ? combinedTexture : heatTexture;
@@ -200,7 +215,20 @@ public class MeshGazeHeatmap : MonoBehaviour
     // per-sample amount instead (see GazeReviewLoader).
     public void PaintAt(Vector2 uv, int radius, float amount)
     {
-        PaintPixels(heatTexture, uv, radius, amount, null);
+        PaintPixels(heatTexture, uv, radius, amount, null, applyImmediately: true);
+    }
+
+    // Same as PaintAt, but skips the SetPixels+Apply GPU upload at the end - see FlushToGpu.
+    // Live gaze (PaintAt) only ever paints one stamp per frame, so uploading immediately every
+    // time is fine and simple. Replaying a saved recording (GazeReviewLoader) paints potentially
+    // thousands of samples in a single tight loop within one frame - uploading the whole texture
+    // to the GPU after EVERY sample in that loop was the real cost behind the "black screen"
+    // freeze reported while GazeReviewScreen's heatmap loaded, not the per-pixel math (that was
+    // real too, but secondary). Batched callers paint everything into the array first, then call
+    // FlushToGpu once at the end.
+    public void PaintAtBatched(Vector2 uv, int radius, float amount)
+    {
+        PaintPixels(heatTexture, uv, radius, amount, null, applyImmediately: false);
     }
 
     // Same brush/falloff math as PaintAt(), but for the specialist-vs-trainee comparison screen:
@@ -212,14 +240,45 @@ public class MeshGazeHeatmap : MonoBehaviour
     
     public void PaintAtColor(Vector2 uv, int radius, float amount, Color fixedColor, Texture2D target)
     {
-        PaintPixels(target, uv, radius, amount, fixedColor);
+        PaintPixels(target, uv, radius, amount, fixedColor, applyImmediately: true);
+    }
+
+    // Batched version of PaintAtColor - see PaintAtBatched above for why this exists. Used by
+    // ComparisonLoader's replay loops; unlike GazeReviewLoader's case, these two targets
+    // (heatTexture/comparisonTexture on the comparison screen) are never directly displayed -
+    // only combinedTexture is - so no FlushToGpu call is needed for them at all afterward;
+    // CombineComparisonBuffers() reads the backing arrays directly and uploads combinedTexture
+    // itself once, already the single upload this whole mechanism is trying to achieve.
+    public void PaintAtColorBatched(Vector2 uv, int radius, float amount, Color fixedColor, Texture2D target)
+    {
+        PaintPixels(target, uv, radius, amount, fixedColor, applyImmediately: false);
+    }
+
+    // Uploads whatever's currently in a texture's backing array to the GPU - call once after a
+    // batch of PaintAtBatched calls finishes, instead of paying a full texture upload after
+    // every sample in the batch.
+    public void FlushToGpu(Texture2D target)
+    {
+        Color[] pixels = GetBackingPixels(target);
+        if (target == null || pixels == null)
+        {
+            return;
+        }
+
+        target.SetPixels(pixels);
+        target.Apply();
     }
 
     // fixedColor null = use HeatGradient(newAlpha) (the normal single-source heatmap look);
     // fixedColor set = use that color directly, intensity still driving alpha (PaintAtColor).
-    private void PaintPixels(Texture2D target, Vector2 uv, int radius, float amount, Color? fixedColor)
+    // applyImmediately false = paint into the backing array only, skip the SetPixels+Apply GPU
+    // upload (see PaintAtBatched/PaintAtColorBatched/FlushToGpu).
+    private void PaintPixels(Texture2D target, Vector2 uv, int radius, float amount, Color? fixedColor, bool applyImmediately)
     {
         if (target == null) return;
+
+        Color[] pixels = GetBackingPixels(target);
+        if (pixels == null) return;
 
         int centerX = Mathf.RoundToInt(uv.x * textureSize);
         int centerY = Mathf.RoundToInt(uv.y * textureSize);
@@ -228,6 +287,8 @@ public class MeshGazeHeatmap : MonoBehaviour
         {
             int py = centerY + y;
             if (py < 0 || py >= textureSize) continue;
+
+            int rowStart = py * textureSize;
 
             for (int x = -radius; x <= radius; x++)
             {
@@ -240,26 +301,42 @@ public class MeshGazeHeatmap : MonoBehaviour
                 // Soft edge: falloff is 1 at the brush center, fading to 0 at its radius.
                 float falloff = 1f - (dist / radius);
 
-                Color existing = target.GetPixel(px, py);
-                float newAlpha = Mathf.Clamp01(existing.a + falloff * amount);
+                int index = rowStart + px;
+                float newAlpha = Mathf.Clamp01(pixels[index].a + falloff * amount);
 
                 Color paintColor = fixedColor ?? HeatGradient(newAlpha);
-                target.SetPixel(px, py, new Color(paintColor.r, paintColor.g, paintColor.b, newAlpha));
+                pixels[index] = new Color(paintColor.r, paintColor.g, paintColor.b, newAlpha);
             }
         }
 
-        target.Apply();
+        if (applyImmediately)
+        {
+            // Bulk upload, not per-pixel - this was already how it worked (Apply() alone), just
+            // now sourced from the plain array above instead of the texture's own pixel storage.
+            target.SetPixels(pixels);
+            target.Apply();
+        }
     }
 
-    private Texture2D CreateBlankTexture()
+    // Maps a target Texture2D back to its backing array - there are only ever the three textures
+    // this component owns, so a simple reference check is enough (no dictionary needed).
+    private Color[] GetBackingPixels(Texture2D target)
+    {
+        if (target == heatTexture) return heatPixels;
+        if (target == comparisonTexture) return comparisonPixels;
+        if (target == combinedTexture) return combinedPixels;
+        return null;
+    }
+
+    private Texture2D CreateBlankTexture(out Color[] pixels)
     {
         Texture2D texture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
-        Color[] clearPixels = new Color[textureSize * textureSize];
-        for (int i = 0; i < clearPixels.Length; i++)
+        pixels = new Color[textureSize * textureSize];
+        for (int i = 0; i < pixels.Length; i++)
         {
-            clearPixels[i] = new Color(0f, 0f, 0f, 0f);
+            pixels[i] = new Color(0f, 0f, 0f, 0f);
         }
-        texture.SetPixels(clearPixels);
+        texture.SetPixels(pixels);
         texture.Apply();
         return texture;
     }
@@ -279,16 +356,18 @@ public class MeshGazeHeatmap : MonoBehaviour
             return;
         }
 
-        Color[] specialistPixels = heatTexture.GetPixels();
-        Color[] trainingPixels = comparisonTexture.GetPixels();
-        Color[] combined = new Color[specialistPixels.Length];
-
-        for (int i = 0; i < combined.Length; i++)
+        // Reads straight from the backing arrays (already up to date - PaintPixels writes them
+        // directly) rather than heatTexture.GetPixels()/comparisonTexture.GetPixels(), avoiding a
+        // redundant full-texture readback. Writes into combinedPixels itself, not just a local
+        // array - PaintAtColor's peak-divergence marker (see ComparisonLoader) paints directly
+        // onto combinedPixels afterward, and would silently overwrite this result with a stale
+        // blank buffer if combinedPixels weren't kept in sync here.
+        for (int i = 0; i < combinedPixels.Length; i++)
         {
-            combined[i] = trainingPixels[i].a > specialistPixels[i].a ? trainingPixels[i] : specialistPixels[i];
+            combinedPixels[i] = comparisonPixels[i].a > heatPixels[i].a ? comparisonPixels[i] : heatPixels[i];
         }
 
-        combinedTexture.SetPixels(combined);
+        combinedTexture.SetPixels(combinedPixels);
         combinedTexture.Apply();
     }
 

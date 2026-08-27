@@ -18,8 +18,8 @@ public class ComparisonLoader : MonoBehaviour
 
     // Fully saturated and picked to stay readable against the room's blue/purple walls (cyan,
     // tried first, sat too close to the wall color to read as its own heat color).
-    [SerializeField] private Color specialistColor = new Color(0f, 1f, 0f); // green
-    [SerializeField] private Color traineeColor = new Color(1f, 1f, 0f); // yellow
+    [SerializeField] private Color specialistColor = new Color(0f, 0.6f, 0f); // dark green
+    [SerializeField] private Color traineeColor = new Color(0.85f, 0.65f, 0f); // gold/dark yellow
 
     [Header("Peak Divergence Marker")]
     // Deliberately distinct from both heat colors above, so it reads as "flagged moment" rather
@@ -27,9 +27,10 @@ public class ComparisonLoader : MonoBehaviour
     [SerializeField] private Color peakDivergenceColor = Color.red;
 
     // Fixed size in texture pixels, not tied to brushRadiusWorldMeters like the live gaze brush -
-    // this is a UI annotation ("look here"), not a measurement of real-world gaze precision, so
-    // it just needs to be big enough to spot at a glance.
-    [SerializeField] private float peakMarkerRadiusPixels = 24f;
+    // this is a UI annotation ("look here"), not a measurement of real-world gaze precision.
+    // Smaller than a first pass at 24px - a precise point is easier to read as "the specific
+    // spot that diverged" than a large circle, which starts looking like just more heat.
+    [SerializeField] private float peakMarkerRadiusPixels = 10f;
 
     // How much heat replayed sample adds - see GazeReviewLoader.amountPerSample for why
     // this is a fixed per-sample value rather than live Time.deltaTime.
@@ -59,10 +60,16 @@ public class ComparisonLoader : MonoBehaviour
 
     private void Start()
     {
-        // A specialist session has no trainee data yet to compare against, so this screen stays
-        // inactive for them.
+        // A specialist session has no trainee data yet to compare against, so this screen is
+        // hidden entirely for them (not just left blank) - specialist view should show only the
+        // main surgery video screen, the one thing actually relevant to recording the reference.
         if (SessionRoleManager.IsSpecialist)
         {
+            if (heatmap != null && heatmap.OverlayGameObject != null)
+            {
+                heatmap.OverlayGameObject.SetActive(false);
+            }
+            gameObject.SetActive(false);
             return;
         }
 
@@ -194,11 +201,17 @@ public class ComparisonLoader : MonoBehaviour
         return recording.samples;
     }
 
+    // Batched, not PaintAtColor - a full texture upload after every sample, potentially
+    // thousands in one method call, was the real cost behind the loading freeze (see
+    // GazeReviewLoader for the same fix). No FlushToGpu call needed here afterward: target is
+    // always heatTexture or comparisonTexture, neither of which is ever directly displayed on
+    // the comparison screen (only combinedTexture is) - CombineComparisonBuffers() reads these
+    // backing arrays directly and does the one real upload itself.
     private void PaintSamples(List<GazeSample> samples, Color color, Texture2D target)
     {
         foreach (GazeSample sample in samples)
         {
-            heatmap.PaintAtColor(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample, color, target);
+            heatmap.PaintAtColorBatched(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample, color, target);
         }
     }
 

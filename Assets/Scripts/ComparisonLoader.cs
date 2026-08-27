@@ -12,11 +12,11 @@ public class ComparisonLoader : MonoBehaviour
 {
     [SerializeField] private MeshGazeHeatmap heatmap;
 
-    [SerializeField] private Color specialistColor = new Color(1f, 0.65f, 0f); // orange
-    [SerializeField] private Color traineeColor = new Color(0f, 1f, 1f); // cyan
 
-    // How much heat each replayed sample adds - see GazeReviewLoader.amountPerSample for why
-    // this is a fixed per-sample value rather than live Time.deltaTime.
+    [SerializeField] private Color specialistColor = new Color(0f, 1f, 0f); // green
+    [SerializeField] private Color traineeColor = new Color(1f, 1f, 0f); // yellow
+
+
     [SerializeField] private float amountPerSample = 0.014f;
 
     // Same reasoning as GazeReviewLoader.initialLoadDelaySeconds - the trainee's own session
@@ -34,7 +34,7 @@ public class ComparisonLoader : MonoBehaviour
 
     private void Start()
     {
-        // Same reasoning as GazeReviewLoader - a specialist session has no trainee data yet to
+
         // compare against, so this screen stays inactive for them.
         if (SessionRoleManager.IsSpecialist)
         {
@@ -52,14 +52,24 @@ public class ComparisonLoader : MonoBehaviour
             return;
         }
 
-        bool loadedSpecialist = LoadInto(GetRecordingsDir(), "specialist_reference.json", specialistColor, heatmap.HeatTexture, deleteAfterLoad: false);
+        bool loadedSpecialist = LoadInto(GetRecordingsDir(), "specialist_reference.json", specialistColor, heatmap.HeatTexture, deleteAfterLoad: false, "Specialist");
         bool loadedTrainee = LoadMostRecentTrainee();
+
+        // One combined line with both counts side by side - easier to eyeball in logcat than
+        // hunting for two separate "Loaded ..." lines further apart in the stream.
+        Debug.Log($"[ComparisonLoader] Specialist: {(loadedSpecialist ? lastSpecialistCount.ToString() : "none")} samples | Trainee: {(loadedTrainee ? lastTraineeCount.ToString() : "none")} samples");
 
         if (loadedSpecialist || loadedTrainee)
         {
             heatmap.CombineComparisonBuffers();
         }
     }
+
+    // Set by PaintRecording() each time it loads a file - just enough state to report both
+    // counts together in the one summary line above, without changing every call site's
+    // signature to thread a count back manually.
+    private int lastSpecialistCount;
+    private int lastTraineeCount;
 
     private bool LoadMostRecentTrainee()
     {
@@ -80,8 +90,7 @@ public class ComparisonLoader : MonoBehaviour
             return false;
         }
 
-        PaintRecording(path, traineeColor, heatmap.ComparisonTexture);
-        Debug.Log($"[ComparisonLoader] Loaded trainee session from '{path}'.");
+        lastTraineeCount = PaintRecording(path, traineeColor, heatmap.ComparisonTexture, "Trainee");
 
         // Consumed - shown once, on the next launch after it was saved, so a later fresh
         // session doesn't inherit stale data. This is now the ONLY place that deletes an
@@ -92,7 +101,7 @@ public class ComparisonLoader : MonoBehaviour
         return true;
     }
 
-    private bool LoadInto(string dir, string fileName, Color color, Texture2D target, bool deleteAfterLoad)
+    private bool LoadInto(string dir, string fileName, Color color, Texture2D target, bool deleteAfterLoad, string label)
     {
         string path = Path.Combine(dir, fileName);
         if (!File.Exists(path))
@@ -101,8 +110,7 @@ public class ComparisonLoader : MonoBehaviour
             return false;
         }
 
-        PaintRecording(path, color, target);
-        Debug.Log($"[ComparisonLoader] Loaded '{path}'.");
+        lastSpecialistCount = PaintRecording(path, color, target, label);
 
         if (deleteAfterLoad)
         {
@@ -111,13 +119,17 @@ public class ComparisonLoader : MonoBehaviour
         return true;
     }
 
-    private void PaintRecording(string path, Color color, Texture2D target)
+    // Returns the sample count so callers can report it (see the combined summary line in
+    // LoadAndDisplay) without every call site needing its own logging.
+    private int PaintRecording(string path, Color color, Texture2D target, string label)
     {
         SavedRecording recording = JsonUtility.FromJson<SavedRecording>(File.ReadAllText(path));
         foreach (Vector3 sample in recording.samples)
         {
             heatmap.PaintAtColor(new Vector2(sample.x, sample.y), Mathf.RoundToInt(sample.z), amountPerSample, color, target);
         }
+        Debug.Log($"[ComparisonLoader] {label}: loaded {recording.samples.Count} samples from '{path}'.");
+        return recording.samples.Count;
     }
 
     private static string GetRecordingsDir()

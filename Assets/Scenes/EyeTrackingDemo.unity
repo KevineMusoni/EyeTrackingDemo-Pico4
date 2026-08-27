@@ -2961,8 +2961,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   heatmap: {fileID: 519000006}
-  specialistColor: {r: 1, g: 0.65, b: 0, a: 1}
-  traineeColor: {r: 0, g: 1, b: 1, a: 1}
+  specialistColor: {r: 0, g: 1, b: 0, a: 1}
+  traineeColor: {r: 1, g: 1, b: 0, a: 1}
   amountPerSample: 0.014
   initialLoadDelaySeconds: 23
 --- !u!1 &519000011

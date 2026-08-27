@@ -189,6 +189,9 @@ public class MeshGazeHeatmap : MonoBehaviour
     // paints into a caller-supplied texture using a fixed color instead of the blue-red
     // HeatGradient, so two independent sources (specialist, trainee) can be painted in
     // distinguishable colors and combined into one displayed image (see ComparisonLoader).
+
+    // PaintAtColor (used only by ComparisonLoader) paints an arbitrary target texture in a fixed color instead this is how the specialist's data ends up orange and the trainee's ends up cyan on the same brush math, just different destination texture and color.
+    
     public void PaintAtColor(Vector2 uv, int radius, float amount, Color fixedColor, Texture2D target)
     {
         PaintPixels(target, uv, radius, amount, fixedColor);
@@ -243,7 +246,7 @@ public class MeshGazeHeatmap : MonoBehaviour
         return texture;
     }
 
-    // Merges heatTexture (specialist) and comparisonTexture (trainee) into combinedTexture -
+    // Merges heatTexture (specialist) and comparisonTexture (trainee) into combinedTexture - one colour
     // the texture actually assigned to overlayRenderer when useComparisonBuffer is true. Called
     // once by ComparisonLoader after both sources have finished painting, not per-sample -
     // a full-texture GetPixels/SetPixels pass on every stamp would be far too expensive for a

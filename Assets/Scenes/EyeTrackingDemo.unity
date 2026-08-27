@@ -957,7 +957,7 @@ LineRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 183335243}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 0
   m_ReceiveShadows: 0
   m_DynamicOccludee: 1
@@ -2824,6 +2824,230 @@ SkinnedMeshRenderer:
     m_Center: {x: -0.031640965, y: 0.7079274, z: 0.061469495}
     m_Extent: {x: 0.019448217, y: 0.019867778, z: 0.014448972}
   m_DirtyAABB: 0
+--- !u!1 &519000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 519000002}
+  - component: {fileID: 519000003}
+  - component: {fileID: 519000004}
+  - component: {fileID: 519000005}
+  - component: {fileID: 519000006}
+  - component: {fileID: 519000007}
+  m_Layer: 0
+  m_Name: ReportScreen
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &519000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 4, y: 1.3, z: 1}
+  m_LocalScale: {x: 1.7, y: 0.96, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 16
+  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
+--- !u!33 &519000003
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &519000004
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &519000005
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 0
+  serializedVersion: 4
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &519000006
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c561b547b02519459692083ba5442fa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  textureSize: 512
+  brushRadiusWorldMeters: 0.1
+  minBrushRadiusPixels: 2
+  maxBrushRadiusPixels: 64
+  heatPerSecond: 1
+  overlayRenderer: {fileID: 519000012}
+  compositorLayer: {fileID: 0}
+  useComparisonBuffer: 1
+  recordSamples: 0
+  recordingId: session
+  autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
+--- !u!114 &519000007
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44be1ec970190c34fbade467731e6101, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  heatmap: {fileID: 519000006}
+  specialistColor: {r: 1, g: 0.65, b: 0, a: 1}
+  traineeColor: {r: 0, g: 1, b: 1, a: 1}
+  amountPerSample: 0.014
+  initialLoadDelaySeconds: 23
+--- !u!1 &519000011
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 519000014}
+  - component: {fileID: 519000013}
+  - component: {fileID: 519000012}
+  m_Layer: 0
+  m_Name: ReportScreen_Overlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!23 &519000012
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000011}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 7969052ab7f59584abc6c346fbb1a6c6, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!33 &519000013
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000011}
+  m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!4 &519000014
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519000011}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 4, y: 1.3, z: 1}
+  m_LocalScale: {x: 1.7, y: 0.96, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 17
+  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
 --- !u!1 &531135046
 GameObject:
   m_ObjectHideFlags: 0
@@ -3006,9 +3230,11 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 967063416}
   compositorLayer: {fileID: 0}
+  useComparisonBuffer: 0
   recordSamples: 0
   recordingId: session
   autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
 --- !u!64 &599140992
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -4729,6 +4955,7 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 2027327160}
   compositorLayer: {fileID: 2027327163}
+  useComparisonBuffer: 0
   recordSamples: 1
   recordingId: surgery_video
   autosaveIntervalSeconds: 5
@@ -4914,9 +5141,11 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 0}
   compositorLayer: {fileID: 0}
+  useComparisonBuffer: 0
   recordSamples: 0
   recordingId: session
   autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
 --- !u!137 &1031389014
 SkinnedMeshRenderer:
   m_ObjectHideFlags: 0
@@ -5516,9 +5745,11 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 1031389014}
   compositorLayer: {fileID: 0}
+  useComparisonBuffer: 0
   recordSamples: 0
   recordingId: session
   autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
 --- !u!114 &1147064817
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5538,9 +5769,11 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 0}
   compositorLayer: {fileID: 0}
+  useComparisonBuffer: 0
   recordSamples: 0
   recordingId: session
   autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
 --- !u!1 &1153806284
 GameObject:
   m_ObjectHideFlags: 0
@@ -8647,9 +8880,11 @@ MonoBehaviour:
   heatPerSecond: 1
   overlayRenderer: {fileID: 882948942}
   compositorLayer: {fileID: 0}
+  useComparisonBuffer: 0
   recordSamples: 0
   recordingId: session
   autosaveIntervalSeconds: 5
+  autoStopAfterSeconds: 0
 --- !u!64 &2029773287
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -8744,6 +8979,7 @@ MonoBehaviour:
   heatmap: {fileID: 2029773286}
   recordingFileName: 
   amountPerSample: 0.014
+  initialLoadDelaySeconds: 22
 --- !u!1 &2031492594
 GameObject:
   m_ObjectHideFlags: 0

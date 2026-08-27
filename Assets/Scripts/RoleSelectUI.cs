@@ -2,8 +2,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 // Two buttons - Specialist / Trainee - wired to their OnClick() events in the Inspector, calling
-// SelectSpecialist()/SelectTrainee() below. Sets SessionRoleManager's static role then loads the
-// main demo scene, same handoff pattern CalibrationManager uses (SceneManager.LoadScene after
+// SelectSpecialist()/SelectTrainee() below. Sets SessionRoleManager's static role then loads the main demo scene, same handoff pattern CalibrationManager uses (SceneManager.LoadScene after
 // setting a static field the next scene reads).
 public class RoleSelectUI : MonoBehaviour
 {
@@ -17,7 +16,7 @@ public class RoleSelectUI : MonoBehaviour
 
     public void SelectTrainee()
     {
-        SessionRoleManager.SetRole(false);
+        SessionRoleManager.SetRole(false); 
         SceneManager.LoadScene(mainSceneName);
     }
 }

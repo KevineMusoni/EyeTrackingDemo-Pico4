@@ -35,6 +35,13 @@ public class GazeReviewLoader : MonoBehaviour
 
     private void Start()
     {
+        // A specialist session is purely "record the reference" - there's nothing meaningful to
+        // review about their own single session, so this screen stays inactive for them.
+        if (SessionRoleManager.IsSpecialist)
+        {
+            return;
+        }
+
         Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds);
     }
 
@@ -46,10 +53,6 @@ public class GazeReviewLoader : MonoBehaviour
             return;
         }
 
-        // Only auto-resolved ("most recent file") loads get consumed - an explicitly named
-        // recordingFileName is treated as a reusable reference (e.g. an expert recording meant
-        // to be shown across many trainee sessions) and is never deleted.
-        bool wasAutoResolved = string.IsNullOrEmpty(recordingFileName);
         string path = ResolveRecordingPath();
         if (path == null)
         {
@@ -66,11 +69,11 @@ public class GazeReviewLoader : MonoBehaviour
 
         Debug.Log($"[GazeReviewLoader] Replayed {recording.samples.Count} samples from '{path}'.");
 
-        if (wasAutoResolved)
-        {
-            File.Delete(path);
-            Debug.Log($"[GazeReviewLoader] Deleted consumed recording '{path}'.");
-        }
+        // Deliberately does NOT delete the auto-resolved file here anymore. ComparisonScreen's
+        // ComparisonLoader also auto-resolves and reads this exact same trainee file, on a
+        // slightly longer delay so it always runs after this one - if this loader deleted it
+        // immediately, ComparisonLoader would find nothing and come up blank. Cleanup is
+        // ComparisonLoader's job now, since it's guaranteed to be the last reader.
     }
 
     private string ResolveRecordingPath()
@@ -88,7 +91,12 @@ public class GazeReviewLoader : MonoBehaviour
             return null;
         }
 
+        // Excludes the constant specialist reference - without this, a trainee session that
+        // never actually produces a file (e.g. the trainee never once looked at the video, so
+        // nothing ever got saved) would make specialist_reference.json the most-recently-written
+        // file in the folder, and this would wrongly treat it as an ordinary trainee session.
         return Directory.GetFiles(dir, "*.json")
+            .Where(f => !Path.GetFileName(f).Equals("specialist_reference.json", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }

@@ -520,31 +520,78 @@ from before the latest script change.
 Goal: record one constant "specialist" reference session, then show it overlaid (two distinct
 colors, same frame) against a trainee's own session, with a labeled legend.
 
-**Step 1 - role selection - code done, scene not yet built.**
-- [x] `SessionRoleManager.cs` - plain static utility (`IsSpecialist`), same cross-scene pattern
-      as `CalibrationManager.CalibrationCorrectionLocal`/`IsCalibrated`.
-- [x] `RoleSelectUI.cs` - `SelectSpecialist()`/`SelectTrainee()` for two buttons' `OnClick()`,
-      sets the role then `SceneManager.LoadScene("EyeTrackingDemo")`.
-- [x] `CalibrationManager.mainSceneName` changed `"EyeTrackingDemo"` -> `"RoleSelect"` (both the
-      script default and `Calibration.unity`'s serialized value) - calibration now hands off to
-      role selection first, not straight into the demo.
-- [ ] Build `RoleSelect.unity` in the Editor (duplicate `Calibration.unity`, strip calibration
-      objects, add Canvas + 2 buttons, wire to `RoleSelectUI`), add to Build Settings between
-      `Calibration` and `EyeTrackingDemo`.
+**Step 1 - role selection - done, including scene.** `RoleSelect.unity` built (duplicated from
+`Calibration.unity`, calibration objects stripped, Canvas + Specialist/Trainee buttons wired to
+`RoleSelectUI`), added to Build Settings between `Calibration` and `EyeTrackingDemo`. Needed
+three additional fixes the duplicated scene didn't have (none related to role selection itself,
+all pre-existing gaps in `Calibration.unity` that were simply never noticed since calibration
+never needed controller interaction):
+- Missing `XR Interaction Manager` (both controllers' Ray Interactor had `m_InteractionManager: {fileID: 0}`) - added the GameObject, wired both.
+- `EventSystem` had the plain `StandaloneInputModule` (mouse/keyboard only) - replaced with XRI's `XRUIInputModule`.
+- Canvas had a plain `GraphicRaycaster` - replaced with `TrackedDeviceGraphicRaycaster` (XR-ray-aware).
+- Missing `InputActionManager` (never present in `Calibration.unity` either) - without it, input actions stay wired but never `.Enable()`d, so the controller just sits at its default pose forever ("stuck"). Added, referencing the same Input Action Asset already used elsewhere.
+- Bonus fix, applied project-wide (`RoleSelect`/`Calibration`/`PositionGuide`/`EyeTrackingDemo`): `LeftHand Controller`'s `LineRenderer` disabled everywhere - only the right hand is ever read for input anywhere in this project's code, and the left ray was drawing a stray line from its default pose with no way to auto-hide (this XRI version's line visual doesn't check tracking state at all).
 
-**Step 2 - role-aware recording - done.** `MeshGazeHeatmap.Start()` now branches on
+**Step 2 - role-aware recording - done.** `MeshGazeHeatmap.Start()` branches on
 `SessionRoleManager.IsSpecialist`: specialist sessions always write to a fixed
 `specialist_reference.json` (always overwritten, never auto-deleted); trainee sessions keep the
 existing timestamped/auto-consumed behavior, unchanged.
 
-**Step 3 - dual-color comparison texture - not started.** Needs a second `Texture2D` buffer on
-`MeshGazeHeatmap`, a `PaintAtColor(uv, radius, amount, color, target)` variant (fixed color per
-source instead of the blue-red gradient), and a combine step merging both buffers into what's
-actually displayed. New loader (or extended `GazeReviewLoader`) feeds `specialist_reference.json`
-into one buffer and the trainee's latest session into the other.
+**Step 3 - dual-color comparison texture - done, including scene, visually confirmed.**
+- [x] `MeshGazeHeatmap.cs`: shared brush-loop extracted into `PaintPixels()`; `PaintAt()` and new
+      `PaintAtColor(uv, radius, amount, fixedColor, target)` both call it. New
+      `useComparisonBuffer` flag (off by default) allocates a second `comparisonTexture` +
+      `combinedTexture`; `CombineComparisonBuffers()` merges both per-pixel (higher alpha wins)
+      into what `overlayRenderer` actually displays - called once by the loader after both
+      sources finish, not per-sample.
+- [x] New `ComparisonLoader.cs` - loads `specialist_reference.json` (never deleted) into
+      `HeatTexture` and the trainee's latest session (auto-resolved, deleted after use, matching
+      `GazeReviewLoader`) into `ComparisonTexture`, in two fixed colors (orange/cyan).
+- [x] `ComparisonOverlay_MAT.mat` created, mirroring `GazeReviewOverlay_MAT.mat`.
+- [x] Built `ReportScreen`/`ReportScreen_Overlay` directly in the scene YAML (same established
+      pattern as the other direct scene edits this session, verified against the known-good
+      `GazeReviewScreen`/`GazeReviewScreen_Overlay` structure) - named "Report" rather than
+      "Comparison" to match how this screen's actually been talked about throughout this feature
+      (`ComparisonLoader.cs`/`ComparisonOverlay_MAT.mat` keep their original names - only the
+      scene GameObjects were renamed, no reason to touch script/asset names too).
+      Placement took several passes (chasing a good position purely by reading wall transforms
+      out of the scene file kept missing things a screenshot caught immediately - a real room
+      corner the flat side-wall colliders didn't account for, an Editor drag/paste that
+      accidentally overwrote `ReportScreen`'s Transform with `Cube (3)` (the wall)'s own
+      position/scale, and a toe-in angle computed to face the spawn point that turned out to be
+      less readable in practice than a flat 90 degree turn). Final, in-headset-confirmed values:
+      position `(4, 1.3, 1)`, rotation `90 degrees` around Y
+      (`m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}` - the same quaternion the
+      room's own walls use for a quarter turn) on both `ReportScreen` and `ReportScreen_Overlay`.
+      Lesson for next time: for anything about how a placement actually *looks*, get a screenshot
+      and iterate visually rather than computing it from collider transforms - geometry read from
+      the scene file repeatedly missed real obstacles/angles a picture caught immediately.
+      `ReportScreen`'s `MeshGazeHeatmap` has `useComparisonBuffer: 1` and its `overlayRenderer`
+      pointed at `ReportScreen_Overlay` (material `ComparisonOverlay_MAT`); `ComparisonLoader` (not
+      `GazeReviewLoader`) is attached, wired to the same `MeshGazeHeatmap`. **Verified on-device** -
+      placement and rotation confirmed by eye in-headset.
 
-**Step 4 - legend - not started.** TMP text near the comparison quad, colors matching step 3's
-`PaintAtColor()` calls exactly.
+**Caught during the "review current code" pass**: `GazeReviewLoader` and `ComparisonLoader` both
+defaulted `initialLoadDelaySeconds` to `22f` and both auto-resolved + deleted the *same* trainee
+recording file, racing with no ordering guarantee - whichever ran first would delete the file out
+from under the other, so the loser silently showed nothing. Fixed: `GazeReviewLoader` no longer
+deletes anything it reads (read-only now); `ComparisonLoader` bumped to `23f` so it's guaranteed
+to run second, making it the sole deleter of the trainee's auto-resolved file. Also gave
+`GazeReviewLoader`'s auto-resolve the same `specialist_reference.json` exclusion
+`ComparisonLoader` already had, closing the edge case where a zero-sample trainee session would
+leave the specialist file as the most-recently-written `.json` and risk it being treated as an
+ordinary trainee recording.
+
+**Step 4 - trainee-only gating - done.** Both `GazeReviewLoader.Start()` and
+`ComparisonLoader.Start()` return immediately if `SessionRoleManager.IsSpecialist` - neither
+schedules its load, so nothing displays on either report screen for a specialist session.
+
+**Step 5 - legend - not started.** TMP text near the comparison quad, colors matching
+`ComparisonLoader`'s `specialistColor`/`traineeColor` exactly. Left as an Editor step rather than
+a hand-authored scene edit - a 3D `TextMeshPro` component carries enough font-asset/material
+sub-object wiring that hand-writing it correctly without ever opening the Editor is too easy to
+get subtly wrong (unlike the plain Quad+MeshRenderer objects above, which mirror an
+already-verified-working pattern exactly).
 - [ ] Split watch vs. review into the real sequential flow (separate scene/step), rather than
       both living in `EyeTrackingDemo.unity` and racing at the same launch.
 

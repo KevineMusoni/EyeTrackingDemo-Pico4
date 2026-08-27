@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/RoleSelect.unity
+    guid: d97381e10a2e28b469c29ccef6943552
+  - enabled: 1
     path: Assets/Scenes/EyeTrackingDemo.unity
     guid: c9b24f3494e9fd040be9511325b715cf
   - enabled: 0

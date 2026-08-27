@@ -35,6 +35,19 @@ public class MeshGazeHeatmap : MonoBehaviour
     // External Surface video (e.g. SurgeryVideoScreen_HeatOverlay). Left unassigned on plain test objects like MadFlower, which render normally with no compositor layer involved.
     [SerializeField] private SurgeryHeatmapOverlayLayer compositorLayer;
 
+    // Only true on the comparison screen - allocates a second buffer (comparisonTexture,
+    // alongside the normal heatTexture) so ComparisonLoader can paint the specialist reference
+    // into one and the trainee's session into the other (see PaintAtColor), then combines both
+    // into what's actually displayed via CombineComparisonBuffers(). Off everywhere else, since
+    // a single-source object (MadFlower, SurgeryVideoScreen, GazeReviewScreen) has no second
+    // source to combine.
+    [SerializeField] private bool useComparisonBuffer = false;
+    private Texture2D comparisonTexture;
+    private Texture2D combinedTexture;
+
+    public Texture2D HeatTexture => heatTexture;
+    public Texture2D ComparisonTexture => comparisonTexture;
+
     [Header("Recording")]
     // Off by default - only the objects we actually want session data saved for (e.g.
     // SurgeryVideoScreen) should have this enabled in the Inspector.
@@ -78,20 +91,24 @@ public class MeshGazeHeatmap : MonoBehaviour
         startTime = Time.time;
         colliderMesh = GetComponent<MeshCollider>().sharedMesh;
 
-        heatTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
+        heatTexture = CreateBlankTexture();
 
-        Color[] clearPixels = new Color[textureSize * textureSize];
-        for (int i = 0; i < clearPixels.Length; i++)
+        // Report screen only: a second source buffer (ComparisonLoader paints the trainee's
+        // session into this one, heatTexture holds the specialist reference), plus a third
+        // texture that's the actual displayed result of combining both - see
+        // CombineComparisonBuffers().
+        if (useComparisonBuffer)
         {
-            clearPixels[i] = new Color(0f, 0f, 0f, 0f);
+            comparisonTexture = CreateBlankTexture();
+            combinedTexture = CreateBlankTexture();
         }
-        heatTexture.SetPixels(clearPixels);
-        heatTexture.Apply();
+
+        Texture2D displayTexture = useComparisonBuffer ? combinedTexture : heatTexture;
 
         if (overlayRenderer != null)
         {
-            overlayRenderer.material.mainTexture = heatTexture;
-            Debug.Log($"[MeshGazeHeatmap] Assigned heatTexture to '{overlayRenderer.name}', shader='{overlayRenderer.material.shader.name}'");
+            overlayRenderer.material.mainTexture = displayTexture;
+            Debug.Log($"[MeshGazeHeatmap] Assigned {(useComparisonBuffer ? "combinedTexture" : "heatTexture")} to '{overlayRenderer.name}', shader='{overlayRenderer.material.shader.name}'");
         }
         else
         {
@@ -165,7 +182,23 @@ public class MeshGazeHeatmap : MonoBehaviour
     // per-sample amount instead (see GazeReviewLoader).
     public void PaintAt(Vector2 uv, int radius, float amount)
     {
-        if (heatTexture == null) return;
+        PaintPixels(heatTexture, uv, radius, amount, null);
+    }
+
+    // Same brush/falloff math as PaintAt(), but for the specialist-vs-trainee comparison screen:
+    // paints into a caller-supplied texture using a fixed color instead of the blue-red
+    // HeatGradient, so two independent sources (specialist, trainee) can be painted in
+    // distinguishable colors and combined into one displayed image (see ComparisonLoader).
+    public void PaintAtColor(Vector2 uv, int radius, float amount, Color fixedColor, Texture2D target)
+    {
+        PaintPixels(target, uv, radius, amount, fixedColor);
+    }
+
+    // fixedColor null = use HeatGradient(newAlpha) (the normal single-source heatmap look);
+    // fixedColor set = use that color directly, intensity still driving alpha (PaintAtColor).
+    private void PaintPixels(Texture2D target, Vector2 uv, int radius, float amount, Color? fixedColor)
+    {
+        if (target == null) return;
 
         int centerX = Mathf.RoundToInt(uv.x * textureSize);
         int centerY = Mathf.RoundToInt(uv.y * textureSize);
@@ -186,15 +219,56 @@ public class MeshGazeHeatmap : MonoBehaviour
                 // Soft edge: falloff is 1 at the brush center, fading to 0 at its radius.
                 float falloff = 1f - (dist / radius);
 
-                Color existing = heatTexture.GetPixel(px, py);
+                Color existing = target.GetPixel(px, py);
                 float newAlpha = Mathf.Clamp01(existing.a + falloff * amount);
 
-                Color heatColor = HeatGradient(newAlpha);
-                heatTexture.SetPixel(px, py, new Color(heatColor.r, heatColor.g, heatColor.b, newAlpha));
+                Color paintColor = fixedColor ?? HeatGradient(newAlpha);
+                target.SetPixel(px, py, new Color(paintColor.r, paintColor.g, paintColor.b, newAlpha));
             }
         }
 
-        heatTexture.Apply();
+        target.Apply();
+    }
+
+    private Texture2D CreateBlankTexture()
+    {
+        Texture2D texture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
+        Color[] clearPixels = new Color[textureSize * textureSize];
+        for (int i = 0; i < clearPixels.Length; i++)
+        {
+            clearPixels[i] = new Color(0f, 0f, 0f, 0f);
+        }
+        texture.SetPixels(clearPixels);
+        texture.Apply();
+        return texture;
+    }
+
+    // Merges heatTexture (specialist) and comparisonTexture (trainee) into combinedTexture -
+    // the texture actually assigned to overlayRenderer when useComparisonBuffer is true. Called
+    // once by ComparisonLoader after both sources have finished painting, not per-sample -
+    // a full-texture GetPixels/SetPixels pass on every stamp would be far too expensive for a
+    // session with thousands of samples. Per pixel, whichever source has the higher alpha
+    // (more looked-at) wins outright, rather than blending colors together, so overlapping
+    // areas stay readable as "mostly specialist" or "mostly trainee" instead of turning into an
+    // undifferentiated third color.
+    public void CombineComparisonBuffers()
+    {
+        if (!useComparisonBuffer || heatTexture == null || comparisonTexture == null || combinedTexture == null)
+        {
+            return;
+        }
+
+        Color[] specialistPixels = heatTexture.GetPixels();
+        Color[] trainingPixels = comparisonTexture.GetPixels();
+        Color[] combined = new Color[specialistPixels.Length];
+
+        for (int i = 0; i < combined.Length; i++)
+        {
+            combined[i] = trainingPixels[i].a > specialistPixels[i].a ? trainingPixels[i] : specialistPixels[i];
+        }
+
+        combinedTexture.SetPixels(combined);
+        combinedTexture.Apply();
     }
 
     private void OnApplicationQuit()

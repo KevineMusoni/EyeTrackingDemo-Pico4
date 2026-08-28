@@ -99,7 +99,7 @@ public class ComparisonLoader : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+            videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
         {

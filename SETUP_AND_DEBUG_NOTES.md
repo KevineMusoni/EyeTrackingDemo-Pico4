@@ -791,9 +791,67 @@ flag (true from `Start()` until `PlaybackStarted` fires) before doing anything a
 it, `startTime` would sit at its default `0`, and `Time.time - 0 >= 20` would look true from the
 very first frame, stopping recording before it ever really began.
 
-**Not yet tested on-device** - this is a real behavioral/timing change to the recording pipeline,
-worth a full Specialist-then-Trainee pass to confirm the review/report screens now load at the
-right moment relative to actual video completion, not just that it compiles.
+**On-device test revealed a regression, now fixed.** First on-device pass: the heatmap stopped
+showing at all, only recovering via the 5-second `FallbackTriggerIfStillWaiting`/
+`FallbackUnblockIfStillWaiting` invokes added defensively alongside the event - meaning
+`PlaybackStarted` was never actually being received by the three subscribers, every single launch.
+
+Diagnosed via an `adb logcat` capture with a diagnostic `Debug.Log` added at the top of
+`OnSurfaceCreated()`: `externalAndroidSurfaceObject` was non-zero every time (ruling out the
+`IntPtr.Zero` early-return as the cause), and the surface-ready callback - and therefore
+`PlaybackStarted?.Invoke()` - was firing within milliseconds of app launch, essentially
+synchronously during the scene's Start() phase rather than after any real async delay.
+
+Root cause: Unity does **not** guarantee `Start()` order between different scripts, even on the
+same GameObject (an assumption made earlier in this fix that turned out to be wrong). If
+`SurgeryVideoOverlayPlayer.Start()` happened to create the surface and fire `PlaybackStarted`
+before `MeshGazeHeatmap`/`GazeReviewLoader`/`ComparisonLoader` had reached their own `Start()` and
+subscribed, the event fired to zero listeners and was gone for good - explaining why the fallback
+was rescuing every launch instead of the real event ever winning the race.
+
+Fix: `SurgeryVideoOverlayPlayer.Start()` no longer calls `CreateExternalSurface()` directly - it
+starts a coroutine (`CreateSurfaceNextFrame()`) that does `yield return null;` first. This
+guarantees the surface (and the resulting `PlaybackStarted` invocation) is created on the *next*
+frame, strictly after every object's `Start()` from the current frame - including all three
+subscribers - has already run, regardless of the otherwise-unspecified ordering between them. This
+sidesteps the race entirely instead of depending on any particular script/component order.
+
+Once the coroutine fix confirmed the real event was reliable, the 5-second fallback
+(`FallbackTriggerIfStillWaiting`/`FallbackUnblockIfStillWaiting`, the `triggered`/
+`waitingForVideoStart`-only-via-timeout paths, and their `Invoke(..., 5f)` calls) was removed from
+all three scripts - it was only ever masking the race, and once nothing hits it anymore it's just
+5 seconds of dead weight sitting between a working event and the code that needs it. All three
+now subscribe to `PlaybackStarted` and act on it directly, with no timeout path.
+
+**Second on-device regression, root-caused via per-GameObject diagnostic logs, now fixed.** After
+the coroutine-defer + fallback-removal round above, `ReticleDemoVideoScreen`'s reticle kept working
+(it was never wired to a `videoPlayer` at all, so unaffected either way) but `SurgeryVideoScreen`'s
+heatmap stopped showing entirely - now with no fallback left to rescue it.
+
+Added a `subscriberCount` log to `OnSurfaceCreated()` plus subscribe/receive logs to
+`MeshGazeHeatmap`, then captured `adb logcat -s Unity | Select-String
+"MeshGazeHeatmap|SurgeryVideoOverlayPlayer"`. This proved the one-frame coroutine defer from the
+previous fix was not enough: `SurgeryVideoScreen`'s `SurgeryVideoOverlayPlayer.OnSurfaceCreated`
+fired at `Time.time=4.01`, but `MeshGazeHeatmap.Start()` **on that same GameObject** didn't run
+until afterward, and its subscription landed a beat later still - so `PlaybackStarted` fired before
+it had subscribed, permanently missing the event. Start() calls across this scene were observed
+spanning ~300ms (dozens of frames) rather than one shared frame, so no fixed number of deferred
+frames on the firing side can reliably guarantee every subscriber has subscribed first - the
+one-frame defer just happened to be wrong for this pairing.
+
+Real fix: replaced the direct `videoPlayer.PlaybackStarted += ...` pattern with a new
+`SurgeryVideoOverlayPlayer.SubscribeOrFireImmediately(Action callback)` method - if playback has
+already started by the time a listener calls it, it invokes the callback immediately instead of
+subscribing to an event that already fired; otherwise it subscribes normally. This removes the
+Start()-order dependency entirely rather than trying to out-guess it, so `SurgeryVideoOverlayPlayer.Start()`
+went back to calling `CreateExternalSurface()` directly (the coroutine defer is no longer needed).
+`MeshGazeHeatmap.cs`, `GazeReviewLoader.cs`, and `ComparisonLoader.cs` all now subscribe via this
+method instead of `+=`; their `OnDestroy()` unsubscribes are unchanged (harmless no-ops on the
+immediate-fire path, since nothing was ever added to the event in that case).
+
+**Retest pending** - rebuild and confirm both `SurgeryVideoScreen`'s heatmap and the
+`ReticleDemoVideoScreen` reticle work immediately, then a full Specialist-then-Trainee pass to
+confirm review/report screens load at the right moment relative to actual video completion.
 
 **Deferred:**
 - [ ] Consolidate duplicated calibration write-up further up this file (the narrative section vs.

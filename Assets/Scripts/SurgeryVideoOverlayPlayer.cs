@@ -33,6 +33,27 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     private PXR_OverLay overlay;
     private bool playbackStarted;
 
+    // Subscribe through this instead of `PlaybackStarted +=` directly. On-device logging showed
+    // Start() order between different scripts - even components on the SAME GameObject - is not
+    // just "unspecified" but can genuinely span many frames apart in this scene (real Start() work
+    // like texture allocation, plus staggered SessionRoleManager-driven activation), so no fixed
+    // number of deferred frames on the firing side can reliably guarantee every subscriber has
+    // subscribed first. This sidesteps the ordering question entirely: if playback has already
+    // started by the time a listener calls this, it fires the callback immediately instead of
+    // silently losing an event nobody was listening for yet; otherwise it just subscribes normally
+    // and waits for the real event like before.
+    public void SubscribeOrFireImmediately(Action callback)
+    {
+        if (playbackStarted)
+        {
+            callback();
+        }
+        else
+        {
+            PlaybackStarted += callback;
+        }
+    }
+
     private void Awake()
     {
         overlay = GetComponent<PXR_OverLay>();
@@ -44,11 +65,17 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
 
     private void Start()
     {
+        // No artificial delay needed here - see SubscribeOrFireImmediately above. Whether this
+        // resolves before or after any given listener's own Start() has already run is now a
+        // non-issue on both sides, so this can fire as early as the SDK allows instead of
+        // deliberately waiting.
         overlay.CreateExternalSurface(overlay);
     }
 
     private void OnSurfaceCreated()
     {
+        Debug.Log($"[SurgeryVideoOverlayPlayer] '{gameObject.name}' OnSurfaceCreated fired at Time.time={Time.time:F2} - playbackStarted={playbackStarted}, surfaceObject={overlay.externalAndroidSurfaceObject}, subscriberCount={PlaybackStarted?.GetInvocationList().Length ?? 0}");
+
         if (playbackStarted)
         {
             return;

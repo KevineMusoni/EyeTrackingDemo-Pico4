@@ -67,7 +67,7 @@ public class GazeReviewLoader : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+            videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
         {

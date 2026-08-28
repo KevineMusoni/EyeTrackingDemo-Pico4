@@ -155,7 +155,8 @@ public class MeshGazeHeatmap : MonoBehaviour
         if (videoPlayer != null)
         {
             waitingForVideoStart = true;
-            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+            Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' subscribing to PlaybackStarted on '{videoPlayer.gameObject.name}' at Time.time={Time.time:F2} - StampAt() blocked until it fires.");
+            videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
         {
@@ -215,6 +216,7 @@ public class MeshGazeHeatmap : MonoBehaviour
 
     private void OnVideoPlaybackStarted()
     {
+        Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' received PlaybackStarted at Time.time={Time.time:F2} - unblocking StampAt().");
         startTime = Time.time;
         waitingForVideoStart = false;
     }

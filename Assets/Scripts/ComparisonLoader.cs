@@ -43,6 +43,18 @@ public class ComparisonLoader : MonoBehaviour
     // this fired first or at the same time, GazeReviewLoader could find the file already gone.
     [SerializeField] private float initialLoadDelaySeconds = 23f;
 
+    // Same reasoning as GazeReviewLoader.videoPlayer - when assigned, the delay above counts
+    // from the video's actual PlaybackStarted event instead of this object's own Start(), since
+    // those aren't the same moment. Left unassigned falls back to the original Start()-based
+    // timing.
+    [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
+
+    // The legend swatches/labels sit next to ReportScreen as separate GameObjects, not children
+    // of it - so hiding ReportScreen for a specialist (see Start() below) doesn't hide these too.
+    // Drag ReportScreen_LegendSwatch_Specialist, _Trainee, and both legend label objects in here
+    // so they get hidden alongside the screen itself.
+    [SerializeField] private GameObject[] legendObjectsToHideForSpecialist;
+
     [Serializable]
     private class GazeSample
     {
@@ -69,11 +81,43 @@ public class ComparisonLoader : MonoBehaviour
             {
                 heatmap.OverlayGameObject.SetActive(false);
             }
+
+            if (legendObjectsToHideForSpecialist != null)
+            {
+                foreach (GameObject legendObject in legendObjectsToHideForSpecialist)
+                {
+                    if (legendObject != null)
+                    {
+                        legendObject.SetActive(false);
+                    }
+                }
+            }
+
             gameObject.SetActive(false);
             return;
         }
 
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+        }
+        else
+        {
+            Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds);
+        }
+    }
+
+    private void OnVideoPlaybackStarted()
+    {
         Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds);
+    }
+
+    private void OnDestroy()
+    {
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted -= OnVideoPlaybackStarted;
+        }
     }
 
     private void LoadAndDisplay()

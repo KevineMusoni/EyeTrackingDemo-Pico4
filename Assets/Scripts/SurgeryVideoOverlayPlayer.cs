@@ -11,12 +11,24 @@ using Unity.XR.PXR;
 // entirely, handing the raw Android Surface straight to PICO's system compositor.
 //
 // Requires Assets/Plugins/Android/playvideo.jar (PICO's own ExoPlayer-backed plugin,
-// class com.pico.exoplayerdemo.PlayVideo) and its ExoPlayer .aar dependencies.
+// class com.pico.exoplayerdemo.PlayVideo) and its ExoPlayer .aar dependencies.  
 
 [RequireComponent(typeof(PXR_OverLay))]
 public class SurgeryVideoOverlayPlayer : MonoBehaviour
 {
     [SerializeField] private string videoFileName = "LAR_Surgery_3D_Robot_SEALG_v01.mp4";
+
+    // Fired once, right when the Android Surface is ready and playback is actually issued -
+    // the closest thing to a real "video started" signal this plugin exposes (there's no
+    // position/duration query on the native ExoPlayer side, so this is it). Anything that needs
+    // "N seconds since the video started" (MeshGazeHeatmap's autoStopAfterSeconds,
+    // GazeReviewLoader/ComparisonLoader's initialLoadDelaySeconds) should measure from this
+    // event, not from its own Start() - those can fire a beat or more before the surface is
+    // actually ready, which is what caused the "review/report load, but video wasn't done"
+    // mismatch this was added to fix. Fired unconditionally (not inside the UNITY_ANDROID
+    // block below) so Editor Play Mode testing of the downstream timing still works even though
+    // the JNI playVideo call itself is Android-only.
+    public event Action PlaybackStarted;
 
     private PXR_OverLay overlay;
     private bool playbackStarted;
@@ -48,7 +60,9 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
             return;
         }
 
+
         playbackStarted = true;
+        PlaybackStarted?.Invoke();
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         string videoPath = System.IO.Path.Combine(Application.persistentDataPath, videoFileName);

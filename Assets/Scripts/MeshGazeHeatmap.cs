@@ -32,6 +32,22 @@ public class MeshGazeHeatmap : MonoBehaviour
 
     [SerializeField] private float heatPerSecond = 1f;
 
+    // On = a live "you are looking here" marker instead of a heatmap - each stamp clears
+    // everything painted before and paints just the current spot, rather than accumulating
+    // alpha over time the way the normal heatmap does. Off everywhere else (SurgeryVideoScreen,
+    // GazeReviewScreen, ReportScreen all want accumulation) - only relevant for a screen whose
+    // whole purpose is a live gaze indicator (ReticleDemoVideoScreen).
+    [SerializeField] private bool instantReticleMode = false;
+    [SerializeField] private Color reticleColor = Color.cyan;
+
+    // Frame-tracking for instantReticleMode's Update(): StampAt() only runs while this object is
+    // the live gaze target, so there's no signal that gaze moved AWAY from it other than "a
+    // frame went by with no StampAt() call." needsClear ensures the clear-and-reupload only
+    // happens once right after that, not every frame forever afterward (which would repeat the
+    // exact per-sample-upload mistake GazeReviewLoader's replay loop had - see FlushToGpu above).
+    private int lastStampFrame = -1;
+    private bool needsClear;
+
     [Header("Overlay Display")]
     [SerializeField] private Renderer overlayRenderer;
 
@@ -89,8 +105,24 @@ public class MeshGazeHeatmap : MonoBehaviour
     // "watching the surgery," it's just noise, and shouldn't keep growing the heatmap or
     // recording.
     [SerializeField] private float autoStopAfterSeconds = 0f;
+
+    // Only set on SurgeryVideoScreen - lets startTime (and everything measured from it:
+    // autoStopAfterSeconds, and every recorded sample's own "time" field) be measured from when
+    // the video actually starts playing instead of from this object's own Start(). Those aren't
+    // the same moment - SurgeryVideoOverlayPlayer's Android Surface creation is asynchronous, so
+    // relying on Start() meant "20 seconds" could start counting before the video had actually
+    // begun, letting the auto-stop (and downstream GazeReviewLoader/ComparisonLoader delays,
+    // which had the same problem) fire before a full 20 seconds of real playback had happened.
+    // Left unassigned on non-video objects (MadFlower, GazeReviewScreen, ReportScreen), which
+    // keep timing from their own Start() exactly as before.
+    [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     private float startTime;
     private bool hasStopped;
+
+    // True only while videoPlayer is assigned and hasn't fired PlaybackStarted yet - StampAt()
+    // must do nothing during this window, not just skip the autoStopAfterSeconds check, since
+    // startTime is still 0 and Time.time - 0 would immediately look like "way past 20 seconds."
+    private bool waitingForVideoStart;
 
     // u/v/radius are the same values StampAt() already computes, kept around so a session can be
     // saved and later replayed. time is seconds since this object's Start() - added so a saved
@@ -120,7 +152,16 @@ public class MeshGazeHeatmap : MonoBehaviour
     {
         Debug.Log($"[MeshGazeHeatmap] Start() on '{gameObject.name}' - overlayRenderer={(overlayRenderer != null ? overlayRenderer.name : "NULL")}");
 
-        startTime = Time.time; // secs elapsed since the object's star
+        if (videoPlayer != null)
+        {
+            waitingForVideoStart = true;
+            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+        }
+        else
+        {
+            startTime = Time.time; // secs elapsed since the object's start
+        }
+
         colliderMesh = GetComponent<MeshCollider>().sharedMesh;
 
         heatTexture = CreateBlankTexture(out heatPixels);
@@ -172,10 +213,24 @@ public class MeshGazeHeatmap : MonoBehaviour
         }
     }
 
+    private void OnVideoPlaybackStarted()
+    {
+        startTime = Time.time;
+        waitingForVideoStart = false;
+    }
+
+    private void OnDestroy()
+    {
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted -= OnVideoPlaybackStarted;
+        }
+    }
+
     // This object is the current gaze target. Called once per frame
     public void StampAt(RaycastHit hit)
     {
-        if (hasStopped)
+        if (hasStopped || waitingForVideoStart)
         {
             return;
         }
@@ -200,7 +255,51 @@ public class MeshGazeHeatmap : MonoBehaviour
             recording.samples.Add(new GazeSample { u = uv.x, v = uv.y, radius = radius, time = Time.time - startTime });
         }
 
-        PaintAt(uv, radius, heatPerSecond * Time.deltaTime);
+        if (instantReticleMode)
+        {
+            lastStampFrame = Time.frameCount;
+            needsClear = true;
+            ClearPixelsInPlace(heatPixels);
+            PaintPixels(heatTexture, uv, radius, 1f, reticleColor, applyImmediately: true);
+        }
+        else
+        {
+            PaintAt(uv, radius, heatPerSecond * Time.deltaTime);
+        }
+    }
+
+    // Only does anything in instantReticleMode - StampAt() only runs while this object is the
+    // live gaze target, so there's no other hook to notice "gaze just moved away, the last
+    // painted dot needs to disappear." Checking every frame instead of only right after losing
+    // the target keeps this simple; the needsClear guard is what stops it from re-uploading the
+    // same already-blank texture every frame forever once it's been cleared once.
+    private void Update()
+    {
+        // Compares against lastStampFrame + 1, not a plain != check - EyeTrackingManager and
+        // this component are on different GameObjects, so Unity doesn't guarantee whether
+        // EyeTrackingManager's Update() (which calls StampAt()) runs before or after this one
+        // each frame. A plain != would clear-then-immediately-repaint every single frame during
+        // continuous gaze whenever this Update() happens to run first - wasteful, though not
+        // visibly wrong. The +1 tolerance means "only clear once a full frame has passed with no
+        // stamp at all," correct under either ordering, at the cost of the clear landing one
+        // frame later than the tightest possible timing when gaze does move away.
+        if (!instantReticleMode || !needsClear || Time.frameCount <= lastStampFrame + 1)
+        {
+            return;
+        }
+
+        ClearPixelsInPlace(heatPixels);
+        heatTexture.SetPixels(heatPixels);
+        heatTexture.Apply();
+        needsClear = false;
+    }
+
+    private static void ClearPixelsInPlace(Color[] pixels)
+    {
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = new Color(0f, 0f, 0f, 0f);
+        }
     }
 
     // The actual brush painting, split out from StampAt() so a saved recording can be replayed

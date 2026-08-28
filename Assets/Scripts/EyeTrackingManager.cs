@@ -12,6 +12,8 @@ public class EyeTrackingManager : MonoBehaviour
     public Transform Greenpoint;
     public GameObject SpotLight;
     public TMP_Text GazeOffsetText;
+    public Transform GazeReticle;
+    public GameObject ReticleTargetObject;
 
     // CalibrationManager lives in a separate scene file (Calibration.unity) - Inspector
     // references can't cross scene files, so CalibrationCorrectionLocal is read directly as a
@@ -35,6 +37,15 @@ public class EyeTrackingManager : MonoBehaviour
     private Transform selectedObj;
 
     private bool wasPressed;
+
+    // GazeReticle must stay active (never SetActive(false)) - its PXR_OverLay compositor layer
+    // only registers correctly with the compositor if the GameObject is active from scene load,
+    // matching the working SurgeryVideoScreen_HeatOverlay. A reticle whose GameObject starts
+    // inactive and gets SetActive(true) later, mid-session, never renders in front of the video
+    // no matter what layerDepth it's given - the layer seems to need to exist before the
+    // compositor's per-frame submission loop is already running with other layers in place.
+    // "Hidden" is therefore done by parking it somewhere unseen instead of deactivating it.
+    private static readonly Vector3 ReticleHiddenPosition = new Vector3(0f, -100f, 0f);
 
     // The actual raycast hit point (what the user is looking AT), as opposed to
     // combineEyeGazeOrigin which is just the ray's start point near the eyes.
@@ -107,6 +118,13 @@ public class EyeTrackingManager : MonoBehaviour
             hasGazeTarget = true;
             gazeTargetPoint = hitinfo.point;
 
+            if (GazeReticle != null && ReticleTargetObject != null)
+            {
+                bool isMatch = hitinfo.collider.gameObject == ReticleTargetObject;
+                GazeReticle.position = isMatch ? hitinfo.point : ReticleHiddenPosition;
+                Debug.Log($"[Reticle] Looking at '{hitinfo.collider.gameObject.name}' | Match: {isMatch} | Reticle now at {GazeReticle.position}");
+            }
+
             if (hitinfo.collider.TryGetComponent(out MeshGazeHeatmap heatmap))
             {
                 // Physics.SphereCast doesn't populate RaycastHit.textureCoord
@@ -153,6 +171,11 @@ public class EyeTrackingManager : MonoBehaviour
                 selectedObj = null;
             }
             Greenpoint.gameObject.SetActive(false);
+
+            if (GazeReticle != null)
+            {
+                GazeReticle.position = ReticleHiddenPosition;
+            }
         }
     }
 }

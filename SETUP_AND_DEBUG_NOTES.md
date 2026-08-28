@@ -603,7 +603,8 @@ existing timestamped/auto-consumed behavior, unchanged.
       accidentally overwrote `ReportScreen`'s Transform with `Cube (3)` (the wall)'s own
       position/scale, and a toe-in angle computed to face the spawn point that turned out to be
       less readable in practice than a flat 90 degree turn). Final, in-headset-confirmed values:
-      position `(4, 1.3, 1)`, rotation `90 degrees` around Y
+      position `(3.2, 1.3, 1)` (nudged from `4` after the legend was added below it), rotation
+      `90 degrees` around Y
       (`m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}` - the same quaternion the
       room's own walls use for a quarter turn) on both `ReportScreen` and `ReportScreen_Overlay`.
       Lesson for next time: for anything about how a placement actually *looks*, get a screenshot
@@ -635,32 +636,164 @@ the one thing actually relevant to recording the reference, rather than two empt
 the room. New `MeshGazeHeatmap.OverlayGameObject` property (`overlayRenderer.gameObject`) lets
 each loader reach its sibling overlay object to hide both halves of the screen together.
 
-**Step 5 - legend - swatches done, text labels still an Editor step.** Went through two design
-ideas: a real 3D arrow pointing at `ReportScreen` (dropped - too much unverified rotation
-geometry for a hand-authored scene edit, matching the pattern of every other placement issue this
-session), then a simpler "colored swatch + label" legend below the screen instead (reference: a
-chart legend screenshot the user shared - colored circle/square next to each label). Built:
+**Step 5 - legend - done.** Went through two design ideas: a real 3D arrow pointing at
+`ReportScreen` (dropped - too much unverified rotation geometry for a hand-authored scene edit,
+matching the pattern of every other placement issue this session), then a simpler "colored swatch
++ label" legend below the screen instead (reference: a chart legend screenshot the user shared -
+colored circle/square next to each label). Built:
 - [x] `LegendSwatch_Specialist_MAT.mat`/`LegendSwatch_Trainee_MAT.mat` - simple opaque colored
       materials (mirroring the existing `Green.mat`'s structure), colors matching
       `ComparisonLoader`'s current `specialistColor`/`traineeColor` exactly (dark green
-      `(0, 0.6, 0)`, gold `(0.85, 0.65, 0)` - update these materials if those colors change again).
+      `(0, 0.6, 0)`, gold `(0.85, 0.65, 0)` - **update these materials if those colors change
+      again, they won't track automatically**).
 - [x] `ReportScreen_LegendSwatch_Specialist`/`_Trainee` - small flat Quads (scale `0.08 x 0.08`),
-      positioned below `ReportScreen`'s bottom edge at `(4, 0.65, 0.7)` and `(4, 0.65, 1.3)`,
-      same `Y: 90` rotation as `ReportScreen` so they face the same way. Safe to hand-author
-      directly (plain colored Quad, same low-risk pattern as every other quad this session) -
-      unlike text labels, below.
-- [ ] Text labels ("Specialist"/"Trainee") next to each swatch - still an Editor step, same
-      reasoning as before: a 3D `TextMeshPro` component's font-asset/material sub-wiring is too
-      easy to get subtly wrong hand-authored blind. **Not yet placed** - once added, check the
-      swatch positions are actually correct too (`0.7`/`1.3` along Z were computed from
-      `ReportScreen`'s 90 degree rotation mapping local width to world Z, not confirmed by eye).
+      positioned below `ReportScreen` at `(3, 0.65, 0.7)` and `(3, 0.65, 1.3)`, same `Y: 90`
+      rotation as `ReportScreen` so they face the same way. Hand-authored directly (plain colored
+      Quad, same low-risk pattern as every other quad this session).
+- [x] Text labels ("Specialist"/"Trainee") added by the user in the Editor - ended up as UI
+      `TextMeshProUGUI` (`RectTransform`) children of an existing world-space Canvas already in
+      the scene (the one `offsetText`/the calibration offset readout also uses), rather than
+      standalone 3D `TextMeshPro` objects as originally described - not wrong, confirmed working
+      correctly by screenshot, just a different component type than planned. **Not written into
+      this file numerically** - their `RectTransform` values are relative to that Canvas's own
+      scaled/rotated local space (scale `0.005`), not plain world units, so they're documented
+      here as "placed and confirmed working," not as copyable coordinates.
+      Known minor gap: `ReportScreen` ended up at `X: 3.2`, swatches at `X: 3` - a small
+      unresolved offset, not confirmed to matter visually.
 - [ ] Split watch vs. review into the real sequential flow (separate scene/step), rather than
       both living in `EyeTrackingDemo.unity` and racing at the same launch.
+
+**Return-to-role-select button - done, not yet visually confirmed.** Specialist sessions had no
+way back to `RoleSelect.unity` short of a full app relaunch. New
+[ReturnToRoleSelectButton.cs](Assets/Scripts/ReturnToRoleSelectButton.cs) - `SetActive(false)`s
+itself in `Start()` unless `SessionRoleManager.IsSpecialist`, same self-hiding pattern
+`GazeReviewLoader`/`ComparisonLoader` use in reverse; its one public method,
+`ReturnToRoleSelect()`, does `SceneManager.LoadScene("RoleSelect")`, wired to a new UI Button's
+`OnClick()`.
+
+Built the Button + child `Text (TMP)` directly in the scene YAML, safely this time - unlike a
+standalone 3D `TextMeshPro` (no known-good reference to copy, real font-asset wiring risk), this
+mirrors `RoleSelect.unity`'s own already-working `SpecialistButton` structure byte-for-byte (same
+script/sprite/font guids), just re-targeted at the new script. Confirmed first that
+`EyeTrackingDemo.unity`'s Canvas already has the same `TrackedDeviceGraphicRaycaster`/
+`XRUIInputModule` guids `RoleSelect.unity` needed adding - so VR-ray clicks should work here with
+no further setup, unlike that scene's original state.
+
+Parented under the same Canvas the legend labels ended up on, anchored position `(0, 300)`,
+sized `200x60`. **Position not confirmed by eye** - reused the legend labels' working
+`m_LocalPosition.z: -5.115` as a starting depth (since that landed correctly near `ReportScreen`),
+but the anchored X/Y is a guess at "somewhere else on the same canvas, clear of existing
+elements," not something confirmed to land in a sensible, reachable spot. **Needs an in-headset
+check** - both that the button is visible/reachable during a specialist session, and that it's
+actually clickable (confirms the raycaster assumption above holds in practice, not just on paper).
 
 **Blocked / needs input:**
 - [ ] Structure list for per-structure dwell time (anatomical/instrument regions) - needs
       clinical contact's input.
 - [ ] Expert recording: captured once and reused, or recaptured per trainee session?
+
+**Gaze indicator on a second video screen - done, working, via a different mechanism than
+originally attempted.** Went through two implementations:
+
+**Attempt 1 (abandoned) - standalone `PXR_OverLay` reticle.** Built `ReticleDemoVideoScreen` by
+duplicating `SurgeryVideoScreen` (position `(-2.684, 1.424, 0.679)`, rotation `Y: -90`, near
+`HeatMapTestObject`/"Mad Flower" per the user's reference point), then tried to give a small
+sphere (`GazeReticle`) its own independent compositor layer (`GazeReticleOverLayer.cs`, mirroring
+`SurgeryHeatmapOverlayLayer.cs`) so it could render in front of the External-Surface video the
+same way the heatmap does. Never got it to actually render in front despite an extensive,
+systematically-ruled-out debugging pass:
+- 4 different `layerDepth` values tried, including the exact value (`-1`) proven to work for
+  `SurgeryHeatmapOverlayLayer` - no change.
+- Confirmed via `hitinfo.normal` position offset (`0.01f` up to `0.1f`) - no change, ruling out
+  simple z-fighting.
+- Adding a `MeshRenderer`/`MeshFilter` back (in case `DynamicTexture` mode needs something to
+  render from) - no change.
+- Starting `GazeReticle` active-at-scene-load instead of activating it later - fixed a genuine
+  scene-load crash (caused by calling `overlay.SetTexture()` inside `Awake()` instead of `Start()`,
+  too early for the PXR runtime) but didn't fix the rendering-order problem itself.
+- Added a diagnostic log confirming the actual C# gaze-matching/positioning logic was 100%
+  correct the whole time (`Match: True`, sane world position, every frame) - proving the
+  unresolved part was purely how PXR composites the layer, not anything fixable in this
+  project's code.
+
+Given the C# logic was proven correct and the rendering issue was in undocumented SDK behavior we
+have no source access to, this approach was abandoned rather than continuing to guess at PXR
+settings. `GazeReticle`, `GazeReticleOverLayer.cs`, and the `GazeReticle`/`ReticleTargetObject`
+fields/logic in `EyeTrackingManager.cs` are dead code from this point on -
+**pending cleanup, not yet removed**.
+
+**Attempt 2 (working) - reused `MeshGazeHeatmap` directly.** Instead of a custom compositor layer,
+gave `ReticleDemoVideoScreen` the same `MeshGazeHeatmap` + dedicated heat-overlay-quad setup
+`SurgeryVideoScreen` already uses successfully (`recordSamples`/`useComparisonBuffer` off, so it
+doesn't feed the specialist/trainee recording pipeline). Built `ReticleDemoVideoScreen_HeatOverlay`
+by duplicating `SurgeryVideoScreen_HeatOverlay` (same X/Y as `ReticleDemoVideoScreen`, Z nudged
+`0.01` closer to the viewer, matching rotation) and wired `MeshGazeHeatmap.overlayRenderer`/
+`compositorLayer` to point to it.
+
+One bug caught during review before it ever reached testing: `compositorLayer` was pointing at
+the *original* `SurgeryVideoScreen_HeatOverlay`'s `SurgeryHeatmapOverlayLayer`
+(fileID `2027327163`) instead of the new duplicate's own instance (fileID `1214010239`) - the two
+screens' heatmaps would have fought over the same compositor layer, likely breaking the already-
+working heatmap on `SurgeryVideoScreen`. Fixed before testing; confirmed working afterward - heat
+now accumulates correctly on `ReticleDemoVideoScreen` when gazed at.
+
+Confirmed working on-device (heat visibly rendering on `ReticleDemoVideoScreen`) - but the user
+clarified the actual wanted outcome was a live reticle, not an accumulating heatmap. Rather than
+reviving the abandoned standalone-compositor-layer approach, added the reticle behavior *on top
+of* this now-proven rendering pipeline instead:
+
+**`MeshGazeHeatmap.cs` - new `instantReticleMode`.** A per-object bool (off everywhere except
+`ReticleDemoVideoScreen`) that changes what `StampAt()` does: instead of accumulating alpha into
+the texture over time (the normal heatmap behavior, unchanged for every other object), it clears
+the whole texture and paints one fresh dot at the current gaze position, every stamp - a live
+marker that moves with gaze rather than a lingering trail. A new `Update()` handles the "gaze
+moved away" case: since `StampAt()` only runs while this object is the actual gaze target, there's
+no other hook for "nothing is being looked at right now" - `Update()` checks whether a full frame
+has passed with no `StampAt()` call and clears the dot if so. That check deliberately compares
+against `lastStampFrame + 1`, not a plain inequality - `EyeTrackingManager` and `MeshGazeHeatmap`
+are different components with no defined execution order, so a plain `!=` check would clear-then-
+immediately-repaint every single frame during continuous gaze whenever Unity happened to run this
+`Update()` before that frame's `StampAt()` - wasteful, though not visibly broken. The `+ 1`
+tolerance fixes that at the cost of the clear landing one frame later than the tightest possible
+timing.
+
+`ReticleDemoVideoScreen`'s heatmap: `instantReticleMode: true`, `reticleColor: cyan`.
+
+**Pending**: remove the dead Attempt-1 code (`GazeReticle` GameObject, `GazeReticleOverLayer.cs`,
+the `GazeReticle`/`ReticleTargetObject` fields and their usage in `EyeTrackingManager.cs`) - fully
+superseded now, nothing depends on it.
+
+**Review/report load timing now measured from actual video playback start, not scene load -
+done.** Reported bug: the trimmed clip is 20s, but a user could spend part of that time looking
+elsewhere in the room (e.g. 3s at "Mad Flower", 17s at the video) and `GazeReviewScreen`/
+`ReportScreen` would still load once 20 seconds had passed *in the scene*, regardless of whether
+the video itself had actually finished 20 seconds of playback. Root cause: every timer involved -
+`MeshGazeHeatmap.autoStopAfterSeconds` on `SurgeryVideoScreen`, and both loaders'
+`initialLoadDelaySeconds` - measured from each script's own `Start()`, not from when the video
+actually began playing. Those aren't the same moment: `SurgeryVideoOverlayPlayer` creates its
+Android Surface asynchronously (`overlay.CreateExternalSurface()` in `Start()`, then a later
+`OnSurfaceCreated()` callback actually issues the `playVideo` JNI call) - real playback can start
+a beat or more after `Start()` runs, and every downstream timer had been counting from the wrong
+zero point the entire time.
+
+Fix: `SurgeryVideoOverlayPlayer.cs` now exposes `public event Action PlaybackStarted`, fired from
+`OnSurfaceCreated()` right when the surface is ready and playback is issued (fired unconditionally,
+not just inside the `UNITY_ANDROID` block, so Editor Play Mode testing of the downstream timing
+still works even without the JNI call itself running). `MeshGazeHeatmap.cs`,
+`GazeReviewLoader.cs`, and `ComparisonLoader.cs` each got a new optional `videoPlayer` field -
+when assigned, `startTime`/the load-delay countdown starts from this event instead of from
+`Start()`; left unassigned (every non-video object) falls back to the original Start()-based
+timing unchanged. All three wired to `SurgeryVideoScreen`'s own `SurgeryVideoOverlayPlayer`
+(fileID `982759302`).
+
+One correctness detail: `MeshGazeHeatmap.StampAt()` now also checks a new `waitingForVideoStart`
+flag (true from `Start()` until `PlaybackStarted` fires) before doing anything at all - without
+it, `startTime` would sit at its default `0`, and `Time.time - 0 >= 20` would look true from the
+very first frame, stopping recording before it ever really began.
+
+**Not yet tested on-device** - this is a real behavioral/timing change to the recording pipeline,
+worth a full Specialist-then-Trainee pass to confirm the review/report screens now load at the
+right moment relative to actual video completion, not just that it compiles.
 
 **Deferred:**
 - [ ] Consolidate duplicated calibration write-up further up this file (the narrative section vs.

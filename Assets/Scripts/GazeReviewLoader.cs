@@ -27,6 +27,13 @@ public class GazeReviewLoader : MonoBehaviour
     // own recording actually exists on disk by the time the load happens.
     [SerializeField] private float initialLoadDelaySeconds = 22f;
 
+    // When assigned, the delay above counts from the video's actual PlaybackStarted event
+    // instead of from this object's own Start() - those aren't the same moment (surface creation
+    // is asynchronous), and counting from Start() meant this could fire before a full watched
+    // segment had actually played, loading stale/incomplete data. Left unassigned falls back to
+    // the original Start()-based timing.
+    [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
+
     [Serializable]
     private class GazeSample
     {
@@ -58,7 +65,27 @@ public class GazeReviewLoader : MonoBehaviour
             return;
         }
 
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted += OnVideoPlaybackStarted;
+        }
+        else
+        {
+            Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds);
+        }
+    }
+
+    private void OnVideoPlaybackStarted()
+    {
         Invoke(nameof(LoadAndDisplay), initialLoadDelaySeconds);
+    }
+
+    private void OnDestroy()
+    {
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted -= OnVideoPlaybackStarted;
+        }
     }
 
     private void LoadAndDisplay()

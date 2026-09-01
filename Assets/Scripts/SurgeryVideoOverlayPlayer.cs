@@ -17,7 +17,7 @@ using Unity.XR.PXR;
 public class SurgeryVideoOverlayPlayer : MonoBehaviour
 {
     [SerializeField] private string videoFileName = "LAR_Surgery_3D_Robot_SEALG_v01.mp4";
-
+    [SerializeField] private bool autoPlayOnStart = true;
     // Fired once, right when the Android Surface is ready and playback is actually issued -
     // the closest thing to a real "video started" signal this plugin exposes (there's no
     // position/duration query on the native ExoPlayer side, so this is it). Anything that needs
@@ -61,7 +61,7 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         overlay.isExternalAndroidSurface = true;
         overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.LeftRight;
         overlay.externalAndroidSurfaceObjectCreated += OnSurfaceCreated;
-    }
+    } 
 
     private void Start()
     {
@@ -69,6 +69,14 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         // resolves before or after any given listener's own Start() has already run is now a
         // non-issue on both sides, so this can fire as early as the SDK allows instead of
         // deliberately waiting.
+
+        if (autoPlayOnStart){
+        overlay.CreateExternalSurface(overlay);
+        }
+
+    }
+
+    public void BeginPlayback(){
         overlay.CreateExternalSurface(overlay);
     }
 

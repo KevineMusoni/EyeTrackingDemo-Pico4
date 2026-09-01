@@ -55,6 +55,27 @@ public class ComparisonLoader : MonoBehaviour
     // so they get hidden alongside the screen itself.
     [SerializeField] private GameObject[] legendObjectsToHideForSpecialist;
 
+    // Fired once, right after LoadAndDisplay() finishes - the signal that ReportScreen actually
+    // has data on it now. ViewVisualisationButton waits for this instead of showing immediately,
+    // so the trainee can't reach a visualization screen before there's anything real to visualize.
+    public event Action LoadCompleted;
+    private bool loadCompleted;
+
+    // Same reasoning as SurgeryVideoOverlayPlayer.SubscribeOrFireImmediately - fires the callback
+    // right away if loading already finished by the time a listener asks, instead of subscribing
+    // to an event that already happened and waiting forever.
+    public void SubscribeOrFireImmediately(Action callback)
+    {
+        if (loadCompleted)
+        {
+            callback();
+        }
+        else
+        {
+            LoadCompleted += callback;
+        }
+    }
+
     [Serializable]
     private class GazeSample
     {
@@ -161,15 +182,18 @@ public class ComparisonLoader : MonoBehaviour
             MarkPeakDivergence(specialistSamples, traineeSamples);
         }
 
-        // Consumed - shown once, on the next launch after it was saved, so a later fresh session
-        // doesn't inherit stale data. This is the ONLY place that deletes an auto-resolved
-        // trainee file - GazeReviewLoader reads the same file but leaves it in place, relying on
-        // its shorter initialLoadDelaySeconds to guarantee it always runs first.
-        if (loadedTrainee)
-        {
-            File.Delete(traineePath);
-            Debug.Log($"[ComparisonLoader] Deleted consumed trainee recording '{traineePath}'.");
-        }
+        // No longer deleted here. This used to consume the trainee's file so a later fresh
+        // session wouldn't inherit stale data - but ResolveMostRecentTraineePath() already only
+        // ever picks the newest-timestamped file, so a future session naturally ignores old ones
+        // without needing them deleted. Deleting here was actively breaking
+        // DivergenceReplayScreenOverlay (Visualisation.unity): it reads this same file, but only
+        // after the trainee clicks the View Visualization button - which only appears after
+        // LoadCompleted below, by which point the file would already be gone. Leaving old
+        // recordings on disk is just housekeeping, not a correctness issue - revisit with a
+        // proper cleanup pass later if GazeRecordings/ ever needs pruning.
+
+        loadCompleted = true;
+        LoadCompleted?.Invoke();
     }
 
     // Buckets both sessions' samples by whole second, finds the second where the specialist's

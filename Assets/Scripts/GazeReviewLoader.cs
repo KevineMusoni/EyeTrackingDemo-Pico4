@@ -117,11 +117,13 @@ public class GazeReviewLoader : MonoBehaviour
 
         Debug.Log($"[GazeReviewLoader] Replayed {recording.samples.Count} samples from '{path}'.");
 
-        // Does not delete the auto-resolved file here anymore. ReportScreen's
-        // ComparisonLoader also auto-resolves and reads this exact same trainee file, on a
-        // slightly longer delay so it always runs after this one - if this loader deleted it
-        // immediately, ComparisonLoader would find nothing and come up blank. Cleanup is
-        // ComparisonLoader's job now, since it's guaranteed to be the last reader.
+        // Does not delete the auto-resolved file - several other readers need this exact same
+        // trainee file afterward: ReportScreen's ComparisonLoader, and later,
+        // DivergenceReplayScreenOverlay in the standalone Visualisation.unity scene (reached via
+        // the View Visualization button, well after this and ComparisonLoader have both already
+        // run). Nothing currently deletes this file at all - see ComparisonLoader.cs for why that
+        // was removed. Old recordings just accumulate in GazeRecordings/ for now; harmless since
+        // ResolveMostRecentTraineePath() always picks the newest one regardless.
     }
 
     private string ResolveRecordingPath()

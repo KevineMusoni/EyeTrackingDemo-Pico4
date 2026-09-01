@@ -71,16 +71,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         overlay.CreateExternalSurface(overlay);
     }
 
-    // An earlier attempt at deferred playback (autoPlayOnStart flag + calling this explicitly)
-    // was removed - on-device logging showed the PXR SDK triggers surface creation from something
-    // inside PXR_OverLay's own Start()/OnEnable() before this script's Start() (on a different
-    // object) ever got a chance to gate it, regardless of any flag here. The reliable way to defer
-    // an instance's playback is to leave its GameObject inactive in the scene until ready - Unity
-    // guarantees Awake()/Start() never run at all on an inactive object, no race possible. See
-    // DivergenceReplayScreen, which starts inactive and is SetActive(true)'d by
-    // DivergenceReplayScreenOverlay.BeginReplay() - Start() above then runs for the first time at
-    // that point, same as any normal instance.
-
     private void OnSurfaceCreated()
     {
         Debug.Log($"[SurgeryVideoOverlayPlayer] '{gameObject.name}' OnSurfaceCreated fired at Time.time={Time.time:F2} - playbackStarted={playbackStarted}, surfaceObject={overlay.externalAndroidSurfaceObject}, subscriberCount={PlaybackStarted?.GetInvocationList().Length ?? 0}");

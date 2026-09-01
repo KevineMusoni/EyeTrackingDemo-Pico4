@@ -1,70 +1,57 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-// View Visualisation loads Visualisation.unity ADDITIVELY (EyetrackingDemo stays loaded underneath, untouched) rather than replacing the current scene. This means going "back" later never has to reconstruct amything from scratch - see ReturnFromVisualisation() below, called by a script living in Visualisation.unity itself.
-
+// "View Visualization" - loads Visualisation.unity as a genuinely standalone scene (Single mode,
+// replacing EyeTrackingDemo entirely - not tied to it in any way). Visualisation.unity has its own
+// XR rig and reads the specialist/trainee recordings fresh from disk (see
+// DivergenceReplayScreenOverlay.cs), so nothing here needs to reach back into EyeTrackingDemo at
+// all - a deliberate simplification after the earlier additive-loading approach (keeping
+// EyeTrackingDemo alive in the background) turned out to cause more problems than it solved: a
+// double-tap could stack two loaded copies of Visualisation on top of each other, and the two
+// scenes' XR rigs/cameras risked conflicting while both stayed active.
 public class ViewVisualisationButton : MonoBehaviour
 {
     [SerializeField] private string visualizationSceneName = "Visualisation";
 
-    // SurgeryVideoScreen, its heat overlay, GazeReviewScreen, ReportScreen, etc. - hidden while
-    // Visualisation is loaded on top (both scenes' objects otherwise coexist in the same 3D
-    // space simultaneously), shown again once back. Same pattern as
-    // ComparisonLoader.legendObjectsToHideForSpecialist.
-    [SerializeField] private GameObject[] objectsToHideWhileVisualizing;
-
-    // Sett once in Start() and never cleared - this object is never destroyed under the additive
-    // approach, so the static reference stays valid for the whole app session, letting
-    // ReturnFromVisualization() below reach back into this scene from Visualisation.unity, which
-    // can't hold a direct Inspector reference to an object in a different scene.
-    private static ViewVisualisationButton activeInstance;
-
-    // Guards against loading Visualisation.unity more than once - on-device logging caught a
-    // double-tap on this button stacking two full additive copies of the scene simultaneously
-    // (two independent DivergenceReplayScreen video layers at the exact same position), which
-    // showed up as flickering - the compositor has no defined way to resolve two overlays fighting
-    // for the same spot. Reset back to false in ReturnFromVisualization() once actually unloaded,
-    // so a later visit can load it again normally.
-    private bool isVisualizationLoaded;
+    // Waited on before revealing this button - see ComparisonLoader.LoadCompleted. Without this,
+    // the button showed immediately at scene start, before the heatmap process was even done or
+    // ReportScreen had anything real to show - a trainee could click through to a visualization
+    // screen with nothing to visualize yet.
+    [SerializeField] private ComparisonLoader comparisonLoader;
 
     private void Start()
     {
-        activeInstance = this;
-        // Only meaningful for a trainee who's finished their session - specialist has nothing to visualise, and there's nothing to show before the video's actually done.
-        gameObject.SetActive(!SessionRoleManager.IsSpecialist);
+        // Specialist has nothing to visualize, ever - hidden permanently, same reasoning as
+        // ComparisonLoader/GazeReviewLoader.
+        if (SessionRoleManager.IsSpecialist)
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
+        // Hidden until ComparisonLoader confirms there's actually data on ReportScreen - see
+        // ComparisonLoader.SubscribeOrFireImmediately for why this is safe regardless of which
+        // script's Start() happens to run first.
+        gameObject.SetActive(false);
+        if (comparisonLoader != null)
+        {
+            comparisonLoader.SubscribeOrFireImmediately(OnComparisonDataReady);
+        }
+        else
+        {
+            // No reference assigned - fall back to always-visible rather than a button that can
+            // never appear.
+            gameObject.SetActive(true);
+        }
+    }
+
+    private void OnComparisonDataReady()
+    {
+        gameObject.SetActive(true);
     }
 
     public void GoToVisualization()
     {
-        if (isVisualizationLoaded)
-        {
-            return;
-        }
-        isVisualizationLoaded = true;
-
-        SetHiddenObjectsActive(false);
-        SceneManager.LoadScene(visualizationSceneName, LoadSceneMode.Additive);
-    }
-
-    // Called from Visualisation.unity's back button - see VisualisationBackBtn.cs.
-    public static void ReturnFromVisualization()
-    {
-        if (activeInstance != null)
-        {
-            activeInstance.SetHiddenObjectsActive(true);
-            activeInstance.isVisualizationLoaded = false;
-        }
-        SceneManager.UnloadSceneAsync("Visualisation");
-    }
-
-    private void SetHiddenObjectsActive(bool active)
-    {
-        foreach (GameObject obj in objectsToHideWhileVisualizing)
-        {
-            if (obj != null)
-            {
-                obj.SetActive(active);
-            }
-        }
+        SceneManager.LoadScene(visualizationSceneName);
     }
 }

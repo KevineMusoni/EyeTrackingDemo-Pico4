@@ -93,7 +93,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         {
             isReplaying = false; // stops updating - texture just holds its last frame
             return;
-            
+
         }
 
         ClearPixels();
@@ -215,7 +215,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         dotsPixels[y * textureSize + x] = color;
     }
 
-    // Same resolution logic as ComparisonLoader/GazeReviewLoader - most recently written file in
+    // ComparisonLoader/GazeReviewLoader, same resolution logic - most recently written file in
     // the recordings folder, excluding the fixed specialist reference.
     private string ResolveMostRecentTraineePath()
     {

@@ -17,7 +17,6 @@ using Unity.XR.PXR;
 public class SurgeryVideoOverlayPlayer : MonoBehaviour
 {
     [SerializeField] private string videoFileName = "LAR_Surgery_3D_Robot_SEALG_v01.mp4";
-    [SerializeField] private bool autoPlayOnStart = true;
     // Fired once, right when the Android Surface is ready and playback is actually issued -
     // the closest thing to a real "video started" signal this plugin exposes (there's no
     // position/duration query on the native ExoPlayer side, so this is it). Anything that needs
@@ -61,7 +60,7 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         overlay.isExternalAndroidSurface = true;
         overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.LeftRight;
         overlay.externalAndroidSurfaceObjectCreated += OnSurfaceCreated;
-    } 
+    }
 
     private void Start()
     {
@@ -69,16 +68,18 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         // resolves before or after any given listener's own Start() has already run is now a
         // non-issue on both sides, so this can fire as early as the SDK allows instead of
         // deliberately waiting.
-
-        if (autoPlayOnStart){
-        overlay.CreateExternalSurface(overlay);
-        }
-
-    }
-
-    public void BeginPlayback(){
         overlay.CreateExternalSurface(overlay);
     }
+
+    // An earlier attempt at deferred playback (autoPlayOnStart flag + calling this explicitly)
+    // was removed - on-device logging showed the PXR SDK triggers surface creation from something
+    // inside PXR_OverLay's own Start()/OnEnable() before this script's Start() (on a different
+    // object) ever got a chance to gate it, regardless of any flag here. The reliable way to defer
+    // an instance's playback is to leave its GameObject inactive in the scene until ready - Unity
+    // guarantees Awake()/Start() never run at all on an inactive object, no race possible. See
+    // DivergenceReplayScreen, which starts inactive and is SetActive(true)'d by
+    // DivergenceReplayScreenOverlay.BeginReplay() - Start() above then runs for the first time at
+    // that point, same as any normal instance.
 
     private void OnSurfaceCreated()
     {

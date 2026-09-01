@@ -13,26 +13,6 @@ using UnityEngine;
 // the one second where their gaze positions were furthest apart with a highlight ring.
 public class DivergenceReplayScreenOverlay : MonoBehaviour
 {
-    // This object's own Mesh Renderer - toggled to hide/reveal the visual. Deliberately NOT
-    // gameObject.SetActive() on this object: Start() below schedules Invoke(BeginReplay) on
-    // itself, and Unity suspends Invoke/Update on an inactive GameObject - deactivating this
-    // object would mean that Invoke never fires, and nothing would ever reactivate it again.
-    // Toggling just the renderer hides the same visual without stopping this script from running.
-    [SerializeField] private Renderer selfRenderer;
-
-    // DivergenceReplayScreen (the video mesh itself) - a different GameObject, so SetActive is
-    // safe here; nothing on THIS script depends on IT staying active.
-    [SerializeField] private GameObject videoScreenObject;
-
-    // DivergenceReplayScreen's own SurgeryVideoOverlayPlayer (autoPlayOnStart = false on that
-    // component) - triggered via BeginPlayback() once the replay is actually ready to start.
-    [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
-
-    // SurgeryVideoScreen's player - this screen's replay is timed off the ORIGINAL session
-    // starting, same pattern as ComparisonLoader/GazeReviewLoader, so the trainee's recording has
-    // actually finished saving by the time this tries to read it.
-    [SerializeField] private SurgeryVideoOverlayPlayer mainVideoPlayer;
-
     // The compositor layer on this same object - fed the dots texture every frame once replaying.
     [SerializeField] private SurgeryHeatmapOverlayLayer overlayLayer;
 
@@ -53,10 +33,6 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     // The trimmed clip's length - also how far Update() counts before stopping.
     [SerializeField] private int videoLengthSeconds = 20;
-
-    // Same tier as GazeReviewLoader's delay, not ComparisonLoader's - this only reads files, and
-    // must finish before ComparisonLoader's own longer delay deletes the trainee recording.
-    [SerializeField] private float initialLoadDelaySeconds = 22f;
 
     [Serializable]
     private class GazeSample
@@ -80,88 +56,30 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     private Texture2D dotsTexture;
     private Color[] dotsPixels;
 
-    // Computed once in BeginReplay(), read every frame in Update() - -1 means "never computed"
-    // (e.g. one side had no data at all), in which case no ring is ever drawn.
+    // Computed once in Start(), read every frame in Update() - -1 means "never computed" (e.g.
+    // one side had no data at all), in which case no ring is ever drawn.
     private int peakDivergenceSecond = -1;
 
+    // No more "wait for the main video, stay hidden until ready" dance - that only existed to
+    // survive coexisting mid-session with the live surgery video in EyeTrackingDemo. This screen
+    // now lives in its own scene, loaded only after the trainee's session (and its recording -
+    // see MeshGazeHeatmap.StampAt()'s autoStopAfterSeconds handling) has already fully finished,
+    // so it can just load and play immediately like any normal screen.
     private void Start()
-    {
-        // Hidden until the replay actually begins - a blank video sitting visible in the room
-        // for the first ~22s would look broken, not intentional. See selfRenderer's comment
-        // above for why this hides the renderer, not the whole GameObject.
-        if (selfRenderer != null)
-        {
-            selfRenderer.enabled = false;
-        }
-        if (videoScreenObject != null)
-        {
-            videoScreenObject.SetActive(false);
-        }
-
-        // Specialist has no trainee data to replay against yet - stays hidden permanently, same
-        // reasoning as ComparisonLoader/GazeReviewLoader.
-        if (SessionRoleManager.IsSpecialist)
-        {
-            return;
-        }
-
-        if (mainVideoPlayer != null)
-        {
-            // Fires immediately if the main video already started by the time we get here, or
-            // subscribes and waits otherwise - see SurgeryVideoOverlayPlayer.SubscribeOrFireImmediately.
-            mainVideoPlayer.SubscribeOrFireImmediately(OnMainVideoStarted);
-        }
-        else
-        {
-            // No main-video reference - fall back to the less precise Start()-based timing.
-            Invoke(nameof(BeginReplay), initialLoadDelaySeconds);
-        }
-    }
-
-    private void OnMainVideoStarted()
-    {
-        Invoke(nameof(BeginReplay), initialLoadDelaySeconds);
-    }
-
-    private void OnDestroy()
-    {
-        if (mainVideoPlayer != null)
-        {
-            mainVideoPlayer.PlaybackStarted -= OnMainVideoStarted;
-        }
-    }
-
-    private void BeginReplay()
     {
         specialistSamples = ReadSamples(Path.Combine(GetRecordingsDir(), "specialist_reference.json"));
         string traineePath = ResolveMostRecentTraineePath();
         traineeSamples = traineePath != null ? ReadSamples(traineePath) : null;
 
-        // Requires both sides loaded and sampled per-second, so this must run after both lists
-        // above are assigned - a genuinely different metric from ComparisonLoader's peak (which
-        // compares sample COUNT per second); this compares actual gaze POSITION, matching what
-        // the two dots on screen are already showing.
+        // Requires both sides loaded, so this must run after both lists above are assigned -
+        // compares actual gaze POSITION per second, matching what the two dots on screen show.
         peakDivergenceSecond = FindPeakDivergenceSecond();
 
-        if (selfRenderer != null)
-        {
-            selfRenderer.enabled = true;
-        }
-        if (videoScreenObject != null)
-        {
-            videoScreenObject.SetActive(true);
-        }
-
-        if (videoPlayer != null)
-        {
-            videoPlayer.BeginPlayback();
-        }
+        Debug.Log($"[DivergenceReplayScreenOverlay] Start() - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
         dotsPixels = new Color[textureSize * textureSize];
 
-        // Measured from THIS screen's own video starting (via BeginPlayback above), not the
-        // original session - that's what keeps the dots in sync with what's actually playing here.
         replayStartTime = Time.time;
         isReplaying = true;
     }
@@ -175,6 +93,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         {
             isReplaying = false; // stops updating - texture just holds its last frame
             return;
+            
         }
 
         ClearPixels();

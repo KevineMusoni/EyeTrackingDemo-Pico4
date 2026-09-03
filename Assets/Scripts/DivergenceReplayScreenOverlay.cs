@@ -34,6 +34,13 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // The trimmed clip's length - also how far Update() counts before stopping.
     [SerializeField] private int videoLengthSeconds = 20;
 
+    // DivergenceReplayScreen's own SurgeryVideoOverlayPlayer - the dot timer waits for its
+    // PlaybackStarted event instead of starting from this script's own Start(), since surface
+    // creation is asynchronous and the two Start() calls (different GameObjects) aren't
+    // guaranteed to line up with when the video actually appears on screen. Left unassigned falls
+    // back to the old, less precise Start()-based timing.
+    [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
+
     [Serializable]
     private class GazeSample
     {
@@ -67,6 +74,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // so it can just load and play immediately like any normal screen.
     private void Start()
     {
+        Debug.Log($"[DivergenceReplayScreenOverlay] Start() at Time.time={Time.time:F2}");
+
         specialistSamples = ReadSamples(Path.Combine(GetRecordingsDir(), "specialist_reference.json"));
         string traineePath = ResolveMostRecentTraineePath();
         traineeSamples = traineePath != null ? ReadSamples(traineePath) : null;
@@ -75,13 +84,41 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
         peakDivergenceSecond = FindPeakDivergenceSecond();
 
-        Debug.Log($"[DivergenceReplayScreenOverlay] Start() - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
+        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
         dotsPixels = new Color[textureSize * textureSize];
 
+        if (videoPlayer != null)
+        {
+            // Fires immediately if the video already started by the time we get here, or
+            // subscribes and waits otherwise - see SurgeryVideoOverlayPlayer.SubscribeOrFireImmediately.
+            videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
+        }
+        else
+        {
+            BeginReplayTiming();
+        }
+    }
+
+    private void OnVideoPlaybackStarted()
+    {
+        BeginReplayTiming();
+    }
+
+    private void BeginReplayTiming()
+    {
         replayStartTime = Time.time;
         isReplaying = true;
+        Debug.Log($"[DivergenceReplayScreenOverlay] Replay timer begins at Time.time={Time.time:F2}");
+    }
+
+    private void OnDestroy()
+    {
+        if (videoPlayer != null)
+        {
+            videoPlayer.PlaybackStarted -= OnVideoPlaybackStarted;
+        }
     }
 
     private void Update()

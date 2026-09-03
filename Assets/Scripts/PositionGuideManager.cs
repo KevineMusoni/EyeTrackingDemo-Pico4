@@ -62,6 +62,16 @@ public class PositionGuideManager : MonoBehaviour
     private int stableFrameCount;
     private bool hasPassed;
 
+    private void Start()
+    {
+        // SDK API that recenters tracking (position + rotation) right as this guide begins 
+        // current position/orientation the user has just settled into becomes the new zero reference
+        // before calibration starts, instead of carrying over drift from earlier in the session.
+        // callable recenter (Packages/PICO Unity IntegrationSDK-214-20230302/Runtime/
+        // Scripts/PXR_Plugin.cs), independent of the system-level Home-button gesture.
+        PXR_Plugin.Sensor.UPxr_ResetSensor(ResetSensorOption.ResetAll);
+    }
+
     private void Update()
     {
         if (hasPassed)
@@ -129,9 +139,9 @@ public class PositionGuideManager : MonoBehaviour
             return indicator.anchoredPosition;
         }
 
-        // basePosition is that eye's own target's position, so a perfectly centered reading (0.5,
-        // 0.5) renders the dot exactly on its target - not always at canvas center regardless of
-        // where the target actually sits.
+        // basePosition is that eye's own target's position, so a centered reading (0.5,
+        // 0.5) renders the dot exactly on its target - not always at canvas center regardless of where the target actually sits.
+
         Vector2 offsetFromCenter = new Vector2(position.x - 0.5f, position.y - 0.5f);
         indicator.anchoredPosition = basePosition + offsetFromCenter * movementMultiplier;
         return indicator.anchoredPosition;

@@ -80,7 +80,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         string traineePath = ResolveMostRecentTraineePath();
         traineeSamples = traineePath != null ? ReadSamples(traineePath) : null;
 
-        // Requires both sides loaded, so this must run after both lists above are assigned -
+        // Requires both sides loaded, this must run after both lists above are assigned -
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
         peakDivergenceSecond = FindPeakDivergenceSecond();
 
@@ -91,8 +91,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            // Fires immediately if the video already started by the time we get here, or
-            // subscribes and waits otherwise - see SurgeryVideoOverlayPlayer.SubscribeOrFireImmediately.
+            // Fires immediately if the video already started 
+            
             videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
@@ -190,8 +190,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // apart (both must have a sample near that second - can't compare a gap against a value).
     private int FindPeakDivergenceSecond()
     {
-        int bestSecond = -1;
-        float bestDistance = -1f;
+        // they both start at -1 because nothing is found yet, distrance is always >= 0
+        int bestSecond = -1; // method value to return global maximum - highest peak
+        float bestDistance = -1f; // method to calculate difference between the trainee and specialist dots
 
         for (int second = 0; second < videoLengthSeconds; second++)
         {

@@ -27,6 +27,11 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     // mismatch this was added to fix. Fired unconditionally (not inside the UNITY_ANDROID
     // block below) so Editor Play Mode testing of the downstream timing still works even though
     // the JNI playVideo call itself is Android-only.
+
+    [SerializeField] private float playbackSpeed = 1f;
+
+    public float PlaybackSpeed => playbackSpeed;
+
     public event Action PlaybackStarted;
 
     private PXR_OverLay overlay;
@@ -110,7 +115,11 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
                 args[1].l = AndroidJNI.NewStringUTF(videoPath);
                 args[2].l = overlay.externalAndroidSurfaceObject;
 
-                AndroidJNI.CallStaticVoidMethod(playVideoClass, methodId, args);
+                AndroidJNI.CallStaticVoidMethod(playVideoClass, methodId, args); // this starts the video via JNI
+                if (!Mathf.Approximately(playbackSpeed, 1f))
+                {
+                    ApplyPlaybackSpeed(playVideoClass, playbackSpeed);
+                }
             }
 
             // log to debug
@@ -122,6 +131,43 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         }
 #endif
     }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    private void ApplyPlaybackSpeed(IntPtr playVideoClass, float speed){
+        try{
+            IntPtr exoPlayerFieldId = AndroidJNI.GetStaticFieldID(
+                playVideoClass, "exoPlayer", "Lcom/google/android/exoplayer2/SimpleExoPlayer;");
+            IntPtr exoPlayerInstance = AndroidJNI.GetStaticObjectField(playVideoClass, exoPlayerFieldId);
+
+            if (exoPlayerInstance == IntPtr.Zero){
+                Debug.LogWarning("[SurgeryVideoOverlayPlayer] exoPlayer field was null - can't apply playback speed.");
+                return;
+            }
+
+            IntPtr paramsClass = AndroidJNI.FindClass("com/google/android/exoplayer2/PlaybackParameters");
+            IntPtr ctor = AndroidJNI.GetMethodID(paramsClass, "<init>", "(F)V");
+            jvalue[] ctorArgs = new jvalue[1];
+            ctorArgs[0].f = speed;
+            IntPtr playbackParams = AndroidJNI.NewObject(paramsClass, ctor, ctorArgs);
+
+            IntPtr exoPlayerClass = AndroidJNI.FindClass("com/google/android/exoplayer2/SimpleExoPlayer");
+            IntPtr setParamsMethod = AndroidJNI.GetMethodID(
+                exoPlayerClass, "setPlaybackParameters", 
+                "(Lcom/google/android/exoplayer2/PlaybackParameters;)V");
+                jvalue[] callArgs = new jvalue[1];
+                callArgs[0].l = playbackParams;
+                AndroidJNI.CallVoidMethod(exoPlayerInstance, setParamsMethod, callArgs);
+
+                Debug.Log($"[SurgeryVideoOverlayPlayer] Applied playback speed {speed}.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[SurgeryVideoOverlayPlayer] ApplyPlaybackSpeed failed: {e}");
+        }
+    }
+#endif
+
+
 
     private void OnDestroy()
     {

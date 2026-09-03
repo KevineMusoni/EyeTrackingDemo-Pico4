@@ -36,11 +36,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     // DivergenceReplayScreen's own SurgeryVideoOverlayPlayer - the dot timer waits for its
     // PlaybackStarted event instead of starting from this script's own Start(), 
-    
+
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
-
-
-    [SerializeField] private float playbackSpeed = 0.3f; // adjustable playback speed 0.5 for half the video playback
 
     [Serializable]
     private class GazeSample
@@ -126,9 +123,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     {
         if (!isReplaying) return;
 
-        // testing with 0.5 speed for user feedback eg: *playbackspeed
 
-        float elapsed = (Time.time - replayStartTime) * playbackSpeed;
+        float elapsed = (Time.time - replayStartTime) * videoPlayer.PlaybackSpeed;
         if (elapsed > videoLengthSeconds)
         {
             isReplaying = false; // stops updating - texture just holds its last frame
@@ -152,7 +148,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             DrawDot(traineeNow.u, traineeNow.v, traineeDotColor);
         }
 
-        // Ring only appears during the one second flagged as the peak - Mathf.FloorToInt matches
+        // apply the ring to the highest peak point - Mathf.FloorToInt matches
         // the same whole-second bucketing FindPeakDivergenceSecond used to find it.
         if (peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == peakDivergenceSecond)
         {

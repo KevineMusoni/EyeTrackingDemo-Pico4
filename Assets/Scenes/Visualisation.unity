@@ -601,6 +601,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   videoFileName: LAR_Surgery_test_20s.mp4
+  playbackSpeed: 0.5
 --- !u!114 &743741209
 MonoBehaviour:
   m_ObjectHideFlags: 0

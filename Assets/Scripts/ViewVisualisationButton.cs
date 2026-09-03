@@ -17,6 +17,7 @@ public class ViewVisualisationButton : MonoBehaviour
     // the button showed immediately at scene start, before the heatmap process was even done or
     // ReportScreen had anything real to show - a trainee could click through to a visualization
     // screen with nothing to visualize yet.
+
     [SerializeField] private ComparisonLoader comparisonLoader;
 
     private void Start()

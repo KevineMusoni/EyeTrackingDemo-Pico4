@@ -6,10 +6,11 @@ using UnityEngine.SceneManagement;
 // role selection for the next one, same as ReturnToRoleSelectButton does from EyeTrackingDemo.
 public class VisualisationBackBtn : MonoBehaviour
 {
-    [SerializeField] private string roleSelectSceneName = "RoleSelect";
+    [SerializeField] private string roleSelectSceneName = "EyeTrackingDemo";
 
     public void GoBack()
     {
+        Debug.Log($"[VisualisationBackBtn] GoBack() called - loading '{roleSelectSceneName}'.");
         SceneManager.LoadScene(roleSelectSceneName);
     }
 }

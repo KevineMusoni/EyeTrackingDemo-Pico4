@@ -133,6 +133,7 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
+// Adjusted playback speed via unity
     private void ApplyPlaybackSpeed(IntPtr playVideoClass, float speed){
         try{
             IntPtr exoPlayerFieldId = AndroidJNI.GetStaticFieldID(

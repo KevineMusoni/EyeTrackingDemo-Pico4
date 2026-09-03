@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEngine;
+using TMPro;
+using UnityEngine.UI;
 
 // Replays the specialist's and trainee's already-recorded gaze as two live-moving dots over the
 // surgery video playing again on DivergenceReplayScreen (a third, independent playback - separate
@@ -27,8 +29,10 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     // The one second where their gaze positions differed most gets a ring around both dots
     // instead of/alongside the plain fill - distinct from the dot colors so it reads as "notable
-    // moment" rather than a third data series.
-    [SerializeField] private Color peakHighlightColor = Color.white;
+    // moment" rather than a third data series. Red matches ComparisonLoader's own
+    // peakDivergenceColor (its dot marker on ReportScreen's combined heatmap) and the slider's
+    // PeakDivergenceMarker segment - same "flagged moment" color across all three screens.
+    [SerializeField] private Color peakHighlightColor = Color.red;
     [SerializeField] private int peakRingRadiusPixels = 20;
 
     // The trimmed clip's length - also how far Update() counts before stopping.
@@ -38,6 +42,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // PlaybackStarted event instead of starting from this script's own Start(), 
 
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
+    [SerializeField] private Slider replayProgressSlider;
+    [SerializeField] private TMP_Text replayTimeText;
+    [SerializeField] private RectTransform peakDivergenceMarker;
 
     [Serializable]
     private class GazeSample
@@ -82,6 +89,23 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
         peakDivergenceSecond = FindPeakDivergenceSecond();
 
+        if (replayProgressSlider != null)
+        {
+            replayProgressSlider.minValue = 0f;
+            replayProgressSlider.maxValue = videoLengthSeconds;
+        }
+
+        if (peakDivergenceMarker != null && peakDivergenceSecond >= 0 && replayProgressSlider != null){
+            // Assumes the marker's RectTransform is anchored to the left edge of the same bar the slider fill, with its pivot at (0,0.5)
+
+            float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
+            float secondWidth = barWidth / videoLengthSeconds;
+            float startX = peakDivergenceSecond * secondWidth;
+
+            peakDivergenceMarker.anchoredPosition = new Vector2(startX, peakDivergenceMarker.anchoredPosition.y);
+            peakDivergenceMarker.sizeDelta = new Vector2(secondWidth, peakDivergenceMarker.sizeDelta.y);
+    }
+
         Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
@@ -125,6 +149,15 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
 
         float elapsed = (Time.time - replayStartTime) * videoPlayer.PlaybackSpeed;
+        if(replayProgressSlider!= null){
+            replayProgressSlider.value = elapsed;
+        }
+
+        if(replayTimeText != null){
+            replayTimeText.text = $"{FormatTime(elapsed)} / {FormatTime(videoLengthSeconds)}";
+        }
+
+
         if (elapsed > videoLengthSeconds)
         {
             isReplaying = false; // stops updating - texture just holds its last frame
@@ -163,6 +196,18 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             overlayLayer.SetHeatTexture(dotsTexture);
         }
     }
+
+    // time in secs to show on slider
+
+    private static string FormatTime(float seconds){
+        int totalSeconds = Mathf.FloorToInt (seconds);
+        int minutes = totalSeconds / 60;
+        int secs = totalSeconds %60;
+      
+        return $"{minutes}:{secs:D2}";
+    }
+
+
 
     private void ClearPixels()
     {

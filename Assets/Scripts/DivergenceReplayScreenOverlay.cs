@@ -113,7 +113,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            // plays immediately if the video already started 
+            // plays immediately if the video already started  
             
             videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }

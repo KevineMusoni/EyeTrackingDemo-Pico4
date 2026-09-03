@@ -35,11 +35,12 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private int videoLengthSeconds = 20;
 
     // DivergenceReplayScreen's own SurgeryVideoOverlayPlayer - the dot timer waits for its
-    // PlaybackStarted event instead of starting from this script's own Start(), since surface
-    // creation is asynchronous and the two Start() calls (different GameObjects) aren't
-    // guaranteed to line up with when the video actually appears on screen. Left unassigned falls
-    // back to the old, less precise Start()-based timing.
+    // PlaybackStarted event instead of starting from this script's own Start(), 
+    
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
+
+
+    [SerializeField] private float playbackSpeed = 0.3f; // adjustable playback speed 0.5 for half the video playback
 
     [Serializable]
     private class GazeSample
@@ -91,7 +92,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            // Fires immediately if the video already started 
+            // plays immediately if the video already started 
             
             videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
@@ -125,7 +126,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     {
         if (!isReplaying) return;
 
-        float elapsed = Time.time - replayStartTime;
+        // testing with 0.5 speed for user feedback eg: *playbackspeed
+
+        float elapsed = (Time.time - replayStartTime) * playbackSpeed;
         if (elapsed > videoLengthSeconds)
         {
             isReplaying = false; // stops updating - texture just holds its last frame

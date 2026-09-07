@@ -857,3 +857,80 @@ confirm review/report screens load at the right moment relative to actual video 
 - [ ] Consolidate duplicated calibration write-up further up this file (the narrative section vs.
       the review-feedback checklist cover a lot of the same ground).
 
+## Custom XR slider drag for replay video scrubbing (`Visualisation.unity`)
+
+**Goal**: a draggable progress slider on `DivergenceReplayScreen`'s replay UI (`ReplayProgressSlider`)
+that lets a viewer scrub the replayed surgery video to any point, seeking the actual native
+playback (not just a visual position) via `SurgeryVideoOverlayPlayer.SeekTo()`.
+
+**Built in from scratch - Unity's UI drag events don't fire on this rig.** Confirmed on-device:
+`IBeginDragHandler`/`IDragHandler`/`IEndDragHandler` never fire at all through this project's XR
+ray-interaction setup for World Space UI, despite the ray visibly holding on the slider and being
+dragged across it. `IPointerUpHandler` does fire, but only as a discrete click - can't report where
+the ray is while the trigger is held and moving, so it could only ever jump once on release, never
+scrub.
+
+New [`CustomSliderDragHandler.cs`](Assets/Scripts/CustomSliderDragHandler.cs), on
+`ReplayProgressSlider`, bypasses Unity's UI event system entirely and polls raw state every frame
+instead. Three real bugs found and fixed along the way, in order:
+
+**Bug 1 - `TryGetCurrentUIRaycastResult()` only worked after the video had already ended.**
+First version found the ray's hit point via `XRRayInteractor.TryGetCurrentUIRaycastResult()` (the
+same query XRI uses internally for UI hover). On-device testing showed this only ever returned a
+usable hit *after* the replay video had finished playing, never during - despite nothing in the
+script reading playback state at all. Root cause never fully pinned down (this method returns
+XRI's own internally-cached per-frame UI raycast, driven by its own event/hover bookkeeping, not
+something directly controllable) - rather than keep chasing it, switched to computing the hit
+directly: `TryGetSliderPlaneHit()` intersects the controller's own live ray
+(`XRRayInteractor.rayOriginTransform`) against the plane the slider's `RectTransform` sits on
+(standard ray-plane intersection), then checks the crossing point falls inside the slider's actual
+`rect` bounds. Plain geometry, no XRI internal caching involved - fixed the "only after the video
+ends" split completely.
+
+**Bug 2 - the slider's own live-playback sync fought the drag, unpredictably.** Once dragging
+correctly moved the handle, `DivergenceReplayScreenOverlay.Update()` (which also writes
+`replayProgressSlider.value` every frame, from the live playback clock) would intermittently
+overwrite it back mid-drag. First fix attempt was a `SetSliderSyncSuppressed(bool)` flag the drag
+handler set true/false around each drag - looked correct on paper but was NOT reliable on-device,
+because Unity does not guarantee `Update()` order between two different scripts' components (same
+category of bug as the `PlaybackStarted` race further up this file) - whichever script's `Update()`
+happened to run first that frame won. Real fix: `CustomSliderDragHandler.LateUpdate()`, which Unity
+*does* guarantee runs after every `Update()` in the scene every frame - while dragging, it
+unconditionally re-applies the frame's drag value one more time, so it always wins regardless of
+ordering. The suppression flag was removed entirely (dead code) once `LateUpdate()` made it
+unnecessary.
+
+**Bug 3 (the real one) - `XRRayInteractor.isSelectActive` never reflects this rig's trigger at
+all.** Even with the drag detection and the `LateUpdate()` override both correct, dragging still
+did nothing on-device, and no diagnostic log ever printed (see logcat note below) - yet the same
+physical trigger reliably clicks the Back button and other UI elsewhere in this exact scene, using
+the exact same `XRRayInteractor`s. Root-caused by reading XRI's own source
+(`XRBaseControllerInteractor.cs`): **UI clicks and 3D-object selection are driven by two entirely
+separate input actions** on `ActionBasedController`. `XRRayInteractor.UpdateUIModel()` - the method
+behind every UI click in this project - sets its model's select state from `isUISelectActive`,
+defined as `m_Controller.uiPressInteractionState.active`. `isSelectActive` (what this script was
+polling, and what `ActionBasedController.selectAction` drives) is a **different** field, meant for
+grabbing 3D interactables, and was never wired to anything that fires on this rig. Fixed by reading
+`ActionBasedController.uiPressAction.action.IsPressed()` directly instead - the exact same action
+XRI's own UI click path is backed by. `controllers[]` (resolved once in `Awake()` via
+`rayInteractor.GetComponentInParent<ActionBasedController>()`) now drives `selecting` in `Update()`,
+with a fallback to `isSelectActive` only if no `ActionBasedController` is found at all.
+
+**Logcat "chatty" collapsing - real dead end, worth remembering.** For most of this debugging pass,
+`adb logcat -s Unity | Select-String "..."` reliably showed nothing, for every script in this file
+including ones later proven to be logging correctly. Root cause, found via a full unfiltered
+`adb logcat -d` dump: Android's `logd` was rate-limiting this app's `UnityMain` thread and silently
+collapsing hundreds to thousands of lines/sec into `chatty: ... expire N lines` summaries - a
+system-level filter that happens *before* any client-side tag filter or pipe ever sees the stream,
+so no amount of retargeting the filter could have worked. Fixed by `adb logcat -G 16M` (bigger
+device-side buffer, once per boot) before capturing, and preferring a dump-then-search
+(`adb logcat -d > file.txt`, then search the file) over a live `-s tag | Select-String` pipe, which
+also independently turned out to buffer unreliably over PowerShell on Windows. Neither of these
+were code bugs - they explain why several rounds of "add a log, test, check logcat" produced no
+signal at all despite correct code, and should be the first thing to reach for again if logs ever
+go silent for no apparent reason.
+
+**Confirmed working on-device**: dragging the handle tracks the controller ray smoothly during
+active playback (not just after the video ends), and releases produce a real seek via
+`SeekTo()`/`SeekToSecond()`.
+

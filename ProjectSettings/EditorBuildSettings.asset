@@ -6,9 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/RoleSelect.unity
-    guid: d97381e10a2e28b469c29ccef6943552
-  - enabled: 1
     path: Assets/Scenes/EyeTrackingDemo.unity
     guid: c9b24f3494e9fd040be9511325b715cf
   - enabled: 1
@@ -20,6 +17,9 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Scenes/Calibration.unity
     guid: afd458d57b5b2fd41a9b5593b95b8806
+  - enabled: 0
+    path: Assets/Scenes/RoleSelect.unity
+    guid: d97381e10a2e28b469c29ccef6943552
   - enabled: 0
     path: 
     guid: 00000000000000000000000000000000

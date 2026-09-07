@@ -135,6 +135,25 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         Debug.Log($"[DivergenceReplayScreenOverlay] Replay timer begins at Time.time={Time.time:F2}");
     }
 
+    // Called when the user drags and releases the replay slider - jumps both the actual video (via videoPlayer.SeekTo) the script to the new position, so the video and the dots agree with each other immediately afterward instead of the dots silently continuing from the old position
+
+    public void SeekToSecond(float seconds){
+        // Temporary - confirms this method actually runs and reaches videoPlayer.SeekTo(). Remove
+        // once the chain is confirmed working.
+        Debug.Log($"[DivergenceReplayScreenOverlay] SeekToSecond({seconds:F2}) called, videoPlayer={(videoPlayer != null ? "wired" : "NULL")}.");
+
+        if(videoPlayer != null){
+            videoPlayer.SeekTo(seconds);
+        }
+
+        // Update() computes elapsed as (Time.time - replayStartTime) * PlaybackSpeed. Solving that equation backwards for replayStartTime, given we want elapsed to equal 'seconds' starting right now, gives this line the same formula BeginReplayTiming() effectively uses (where the target was 0 instead of arbitrary seconds value).
+        float speed = videoPlayer != null ? videoPlayer.PlaybackSpeed : 1f;
+        replayStartTime = Time.time - (seconds / speed);
+
+        // In case the replay had already finished (isReplaying was false) before you dragged back into range - without this, Update() would still just do nothing even after a valid seek.
+        isReplaying = true;
+    }
+
     private void OnDestroy()
     {
         if (videoPlayer != null)
@@ -150,6 +169,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         float elapsed = (Time.time - replayStartTime) * videoPlayer.PlaybackSpeed;
         if(replayProgressSlider!= null){
+            // CustomSliderDragHandler.LateUpdate() re-applies the drag position after this, every
+            // frame, while a hand is actively dragging - so this can write unconditionally here
+            // without needing to coordinate with it directly.
             replayProgressSlider.value = elapsed;
         }
 

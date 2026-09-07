@@ -27,6 +27,10 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     [SerializeField] private int dotRadiusPixels = 12;
 
+    [SerializeField] private float tailDurationSeconds = 1f; // how far back in time the tail reaches
+    [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
+    [SerializeField] private int tailMinRadiusPixels = 4; //size of the oldest (tail-end) dot
+
     // The one second where their gaze positions differed most gets a ring around both dots
     // instead of/alongside the plain fill - distinct from the dot colors so it reads as "notable
     // moment" rather than a third data series. Red matches ComparisonLoader's own
@@ -45,6 +49,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
     [SerializeField] private RectTransform peakDivergenceMarker;
+
+
 
     [Serializable]
     private class GazeSample
@@ -192,16 +198,10 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         // A null sample means that person wasn't looking at the video around this exact moment -
         // no dot drawn that frame rather than showing a stale/wrong position.
         GazeSample specialistNow = FindSampleNearTime(specialistSamples, elapsed);
-        if (specialistNow != null)
-        {
-            DrawDot(specialistNow.u, specialistNow.v, specialistDotColor);
-        }
+        DrawTail(specialistSamples, elapsed, specialistDotColor);
 
         GazeSample traineeNow = FindSampleNearTime(traineeSamples, elapsed);
-        if (traineeNow != null)
-        {
-            DrawDot(traineeNow.u, traineeNow.v, traineeDotColor);
-        }
+        DrawTail(traineeSamples, elapsed, traineeDotColor);
 
         // apply the ring to the highest peak point - Mathf.FloorToInt matches
         // the same whole-second bucketing FindPeakDivergenceSecond used to find it.
@@ -277,18 +277,66 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         return bestSecond;
     }
 
-    private void DrawDot(float u, float v, Color color)
+    private void DrawDot(float u, float v, Color color, int radius)
     {
         int x = Mathf.RoundToInt(Mathf.Clamp01(u) * (textureSize - 1));
         int y = Mathf.RoundToInt(Mathf.Clamp01(v) * (textureSize - 1));
 
-        for (int dy = -dotRadiusPixels; dy <= dotRadiusPixels; dy++)
+        for (int dy = -radius; dy <= radius; dy++)
         {
-            for (int dx = -dotRadiusPixels; dx <= dotRadiusPixels; dx++)
+            for (int dx = -radius; dx <= radius; dx++)
             {
-                if (dx * dx + dy * dy > dotRadiusPixels * dotRadiusPixels) continue;
+                if (dx * dx + dy * dy > radius * radius) continue;
                 SetPixelSafe(x + dx, y + dy, color);
             }
+        }
+    }
+
+    // stamps DrawDot repeatedly  along the segment from uv1 to uv2, close enough together that the stamps overlap and read as one continous stroke rather than separate dots . Both color and radius are interpolated along the segment , so a tail built from several of these reads as one smoothly tapering thread rather thana chain of same-size beads.
+    private void DrawLine(Vector2 uv1, Vector2 uv2, Color color1, Color color2, int radius1, int radius2){
+        Vector2 p1 = uv1 * (textureSize -1);
+        Vector2 p2 = uv2 * (textureSize -1);
+        float distancePixels = Vector2.Distance(p1, p2);
+
+        int stepRadius = Mathf.Max(1, Mathf.Min(radius1, radius2));
+        int steps = Mathf.Max(1, Mathf.CeilToInt(distancePixels / stepRadius));
+
+        for (int s = 0; s <= steps; s++){
+            float lerp = (float)s / steps;
+            Vector2 uv = Vector2.Lerp(uv1, uv2, lerp);
+            Color color = Color.Lerp(color1, color2, lerp);
+            int radius = Mathf.RoundToInt(Mathf.Lerp(radius1, radius2, lerp));
+            DrawDot(uv.x, uv.y, color, radius);
+        }
+    }
+
+    // Draws a fading tapering trail of past positions leading up to the current one, instead of a single static dot - reads back into the already-loaded sample list at several earlier timestamps rather than tracking any new runtime state, so it stays correct even after seeking.
+    private void DrawTail(List<GazeSample> samples, float elapsed, Color baseColor){
+        Vector2? prevUV = null;
+        int prevRadius = tailMinRadiusPixels;
+        Color prevColor = baseColor;
+
+        for (int i = 0; i < tailPointCount; i++){
+            float age = tailPointCount > 1 ? (float)i / (tailPointCount - 1): 1f; // 0 = oldest, 1 = current
+            float t = elapsed - (1f - age) * tailDurationSeconds;
+            if(t < 0f) continue;
+
+            GazeSample sample = FindSampleNearTime(samples,t);
+            if(sample == null) { prevUV = null; continue;}
+
+            int radius = Mathf.RoundToInt(Mathf.Lerp(tailMinRadiusPixels, dotRadiusPixels, age));
+            Color faded = new Color(baseColor.r, baseColor.g, baseColor.b, Mathf.Lerp(0.15f, baseColor.a, age));
+            Vector2 uv = new Vector2(sample.u, sample.v);
+
+            if(prevUV.HasValue)
+                DrawLine(prevUV.Value, uv, prevColor, faded, prevRadius, radius);
+            else
+                DrawDot(uv.x, uv.y, faded, radius);
+            
+            prevUV = uv;
+            prevRadius = radius;
+            prevColor = faded;
+
         }
     }
 

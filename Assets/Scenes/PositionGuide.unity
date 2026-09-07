@@ -1101,10 +1101,17 @@ MonoBehaviour:
   calibrationSceneName: Calibration
   leftEyeIndicator: {fileID: 0}
   rightEyeIndicator: {fileID: 0}
-  continueButton: {fileID: 0}
+  leftCenterTarget: {fileID: 0}
+  rightCenterTarget: {fileID: 0}
+  leftChecker: {fileID: 0}
+  rightChecker: {fileID: 0}
   movementMultiplier: 200
-  invertX: 0
-  invertY: 0
+  pixelTolerance: 30
+  requiredStableFrames: 60
+  snapDuration: 0.4
+  resultText: {fileID: 0}
+  passMessage: Headset positioned correctly
+  messageDuration: 4
 --- !u!4 &1527572419
 Transform:
   m_ObjectHideFlags: 0
@@ -2257,7 +2264,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 0}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0

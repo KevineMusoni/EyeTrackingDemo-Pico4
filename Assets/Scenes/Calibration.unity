@@ -814,7 +814,12 @@ MonoBehaviour:
   dwellDurationPerPoint: 2
   settleTimeBeforeSampling: 1
   resultDisplayDuration: 2
+  convergencePrecisionDegrees: 0.5
+  minSamplesBeforeConvergenceCheck: 5
+  minStableFramesToConverge: 10
   maxPlausiblePointCorrectionDegrees: 20
+  perPointFitGuidanceThreshold: 3
+  fullSequenceFitGuidanceThreshold: 3
 --- !u!4 &369342997
 Transform:
   m_ObjectHideFlags: 0
@@ -1999,7 +2004,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 0}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0

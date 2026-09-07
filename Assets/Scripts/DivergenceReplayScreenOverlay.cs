@@ -91,6 +91,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         string traineePath = ResolveMostRecentTraineePath();
         traineeSamples = traineePath != null ? ReadSamples(traineePath) : null;
 
+        specialistSamples?.Sort((a,b) => a.time.CompareTo(b.time));
+        traineeSamples?.Sort((a,b) => a.time.CompareTo(b.time));
+
         // Requires both sides loaded, this must run after both lists above are assigned -
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
         peakDivergenceSecond = FindPeakDivergenceSecond();
@@ -229,8 +232,6 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         return $"{minutes}:{secs:D2}";
     }
 
-
-
     private void ClearPixels()
     {
         for (int i = 0; i < dotsPixels.Length; i++)
@@ -252,11 +253,52 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         return Mathf.Abs(nearest.time - time) <= tolerance ? nearest : null;
     }
 
-    // Finds the whole second where the specialist's and trainee's gaze positions were furthest
+
+
+    private GazeSample FindInterpolatedSample(List<GazeSample> samples,float time )
+    {
+        if (samples == null || samples.Count == 0) return null;
+
+        GazeSample before = null;
+        GazeSample after = null;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            if (samples[i].time <= time) before = samples[i];
+            if (samples[i].time > time) {after = samples[i]; break;}
+        }
+
+        const float tolerance = 0.15f;
+
+        if (before == null && after == null) return null;
+        if (before == null) return Mathf.Abs(after.time - time) <= tolerance ? after: null;
+        if (after == null) return Mathf.Abs(before.time - time) <= tolerance ? before : null;
+
+        float span = after.time - before.time;
+        if (span <= 0f) return before;
+
+        if (span > tolerance * 2f){
+            if (time - before.time <= tolerance) return before;
+            if (after.time - time <= tolerance) return after;
+            return null;
+        }
+
+        float lerp = (time - before.time) / span;
+        return new GazeSample{
+            u = Mathf.Lerp(before.u, after.u, lerp),
+            v = Mathf.Lerp(before.v, after.v, lerp),
+            radius = Mathf.Lerp(before.radius, after.radius, lerp),
+            time = time
+        };
+
+
+    }
+
+    // Calculate the difference per second where the specialist's and trainee's gaze positions were furthest
     // apart (both must have a sample near that second - can't compare a gap against a value).
     private int FindPeakDivergenceSecond()
     {
-        // they both start at -1 because nothing is found yet, distrance is always >= 0
+        // they both start at -1 because nothing is found yet, distance is always >= 0
         int bestSecond = -1; // method value to return global maximum - highest peak
         float bestDistance = -1f; // method to calculate difference between the trainee and specialist dots
 
@@ -321,7 +363,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             float t = elapsed - (1f - age) * tailDurationSeconds;
             if(t < 0f) continue;
 
-            GazeSample sample = FindSampleNearTime(samples,t);
+            GazeSample sample = FindInterpolatedSample(samples,t);
             if(sample == null) { prevUV = null; continue;}
 
             int radius = Mathf.RoundToInt(Mathf.Lerp(tailMinRadiusPixels, dotRadiusPixels, age));

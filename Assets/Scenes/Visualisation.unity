@@ -2751,6 +2751,9 @@ MonoBehaviour:
   specialistDotColor: {r: 0, g: 0.6, b: 0, a: 1}
   traineeDotColor: {r: 0.85, g: 0.65, b: 0, a: 1}
   dotRadiusPixels: 12
+  tailDurationSeconds: 1
+  tailPointCount: 8
+  tailMinRadiusPixels: 4
   peakHighlightColor: {r: 1, g: 0, b: 0, a: 1}
   peakRingRadiusPixels: 20
   videoLengthSeconds: 20

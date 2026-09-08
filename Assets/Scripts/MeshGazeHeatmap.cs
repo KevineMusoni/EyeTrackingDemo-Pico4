@@ -236,7 +236,7 @@ public class MeshGazeHeatmap : MonoBehaviour
     }
 
     // This object is the current gaze target. Called once per frame
-    public void StampAt(RaycastHit hit)
+    public void StampAt(RaycastHit hit, bool eyesOpen = true)
     {
         if (hasStopped || waitingForVideoStart)
         {
@@ -270,14 +270,11 @@ public class MeshGazeHeatmap : MonoBehaviour
             lastStampFrame = Time.frameCount;
             needsClear = true;
 
-            // Push this frame's real raycast result onto the trail - not a prediction or smoothed
-            // value, the exact same uv/radius StampAt() already computed above.
-            tailBuffer.Add(new GazeSample { u = uv.x, v = uv.y, radius = radius, time = Time.time });
+            if (eyesOpen){
+                tailBuffer .Add(new GazeSample {u = uv.x, v = uv.y, radius = radius, time = Time.time});
+                tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
 
-            // Drop anything older than the trail's window. Runs every frame (not just on some timer)
-            // so a point's effective age - and thus its drawn size/alpha in DrawTail() - advances
-            // smoothly frame to frame instead of jumping when some periodic check finally catches up.
-            tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
+            }
 
             DrawTail();
         }
@@ -297,7 +294,7 @@ public class MeshGazeHeatmap : MonoBehaviour
             float age = Mathf.Clamp01((Time.time - s.time) / tailDurationSeconds);
             int r = Mathf.RoundToInt(Mathf.Lerp(s.radius, tailMinRadiusPixels, age));
 
-            Colour c = new Color(reticleColor.r, reticleColor.g, reticleColor.b, Mathf.Lerp(reticleColor.a, 0.1f, age));
+            Color c = new Color(reticleColor.r, reticleColor.g, reticleColor.b, Mathf.Lerp(reticleColor.a, 0.1f, age));
             Vector2 uv = new Vector2(s.u, s.v);
 
             if (prevUV.HasValue)
@@ -311,7 +308,7 @@ public class MeshGazeHeatmap : MonoBehaviour
         heatTexture.Apply();
     }
 
-    private void DrawDot(Vector 2 uv, Color color, int radius){
+    private void DrawDot(Vector2 uv, Color color, int radius){
         int centerX = Mathf.RoundToInt(uv.x * textureSize);
         int centerY = Mathf.RoundToInt(uv.y * textureSize);
 
@@ -333,10 +330,10 @@ public class MeshGazeHeatmap : MonoBehaviour
     }
 
     private void DrawLine(Vector2 uv1, Vector2 uv2, Color color, int radius){
-        float distancePixels = Vector2.Distance(uv1 * textureSize, uv2 * textureSize);
+        float distPixel = Vector2.Distance(uv1 * textureSize, uv2 * textureSize);
         int steps = Mathf.Max(1, Mathf.CeilToInt(distPixel / Mathf.Max(1, radius)));
 
-        for(int = 0; i <= steps; i++){
+        for(int i = 0; i <= steps; i++){
             float t=i / (float) steps;
             DrawDot(Vector2.Lerp(uv1, uv2,t), color, radius);
         }
@@ -344,29 +341,43 @@ public class MeshGazeHeatmap : MonoBehaviour
 
 
     // Only does anything in instantReticleMode - StampAt() only runs while this object is the
-    // live gaze target, so there's no other hook to notice "gaze just moved away, the last
-    // painted dot needs to disappear." Checking every frame instead of only right after losing
-    // the target keeps this simple; the needsClear guard is what stops it from re-uploading the
-    // same already-blank texture every frame forever once it's been cleared once.
+    // live gaze target, so there's no other hook to notice "gaze just moved away." Unlike the
+    // original single-dot version (which just blanked the texture once), tail mode has to keep
+    // the trail fading on its own here for as long as tailBuffer still has points left - StampAt()
+    // stops calling DrawTail() the moment gaze leaves, so nothing else will.
     private void Update()
     {
-        // Compares against lastStampFrame + 1, not a plain != check - EyeTrackingManager and
-        // this component are on different GameObjects, so Unity doesn't guarantee whether
-        // EyeTrackingManager's Update() (which calls StampAt()) runs before or after this one
-        // each frame. A plain != would clear-then-immediately-repaint every single frame during
-        // continuous gaze whenever this Update() happens to run first - wasteful, though not
-        // visibly wrong. The +1 tolerance means "only clear once a full frame has passed with no
-        // stamp at all," correct under either ordering, at the cost of the clear landing one
-        // frame later than the tightest possible timing when gaze does move away.
-        if (!instantReticleMode || !needsClear || Time.frameCount <= lastStampFrame + 1)
-        {
-            return;
-        }
+        if (!instantReticleMode) return;
 
-        ClearPixelsInPlace(heatPixels);
-        heatTexture.SetPixels(heatPixels);
-        heatTexture.Apply();
-        needsClear = false;
+        // StampAt() only runs while this object IS the current gaze target - if it ran this
+        // frame (or the frame just before, covering ordering ambiguity between
+        // EyeTrackingManager's Update() and this one), it already called DrawTail() itself.
+        // Returning here avoids redundantly redrawing on top of that every frame gaze is active.
+        if (Time.frameCount <= lastStampFrame + 1) return;
+
+        // Past this point gaze has been off the screen for at least one full frame - nothing
+        // else is calling DrawTail() anymore. If there's nothing left to fade and the final
+        // clear already happened, there's nothing to do.
+        if (tailBuffer.Count == 0 && !needsClear) return;
+
+        // Evict here too, not just inside StampAt() - this is what lets the trail keep shrinking
+        // in real time even while gaze is elsewhere and StampAt() isn't running RemoveAll() anymore.
+        tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
+
+        if (tailBuffer.Count > 0)
+        {
+            // Still points left to fade - repaint the now-smaller, more-transparent trail.
+            DrawTail();
+        }
+        else
+        {
+            // Last point just aged out - blank the texture once, then stop (needsClear = false
+            // means the check above will early-out on every subsequent idle frame).
+            ClearPixelsInPlace(heatPixels);
+            heatTexture.SetPixels(heatPixels);
+            heatTexture.Apply();
+            needsClear = false;
+        }
     }
 
     private static void ClearPixelsInPlace(Color[] pixels)

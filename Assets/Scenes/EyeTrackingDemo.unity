@@ -2435,6 +2435,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 519000012}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 1
@@ -3019,14 +3021,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 598457040}
-  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -2.69, y: 1.27, z: -0.1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.3, z: 3}
   m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 20
-  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &598457047
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3046,6 +3048,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 1
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 1214010241}
   compositorLayer: {fileID: 1214010239}
   useComparisonBuffer: 0
@@ -3158,6 +3162,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 967063416}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 0
@@ -5469,14 +5475,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 982759295}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.3, z: 3}
+  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -2.69, y: 1.27, z: -0.1}
   m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 11
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
 --- !u!114 &982759301
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5496,6 +5502,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 2027327160}
   compositorLayer: {fileID: 2027327163}
   useComparisonBuffer: 0
@@ -5688,6 +5696,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 0}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 0
@@ -6313,6 +6323,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 1031389014}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 0
@@ -6340,6 +6352,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 0}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 0
@@ -6844,14 +6858,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1214010238}
-  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -2.69, y: 1.27, z: -0.1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.3, z: 2.99}
   m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 21
-  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1215187701
 GameObject:
   m_ObjectHideFlags: 0
@@ -10506,14 +10520,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2027327159}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.3, z: 2.99}
+  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -2.69, y: 1.27, z: -0.1}
   m_LocalScale: {x: 1.7066667, y: 0.96, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 12
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
 --- !u!114 &2027327163
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10684,6 +10698,8 @@ MonoBehaviour:
   heatPerSecond: 1
   instantReticleMode: 0
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  tailDurationSeconds: 0.5
+  tailMinRadiusPixels: 2
   overlayRenderer: {fileID: 882948942}
   compositorLayer: {fileID: 0}
   useComparisonBuffer: 0

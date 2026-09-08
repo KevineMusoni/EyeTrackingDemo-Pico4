@@ -38,6 +38,8 @@ public class EyeTrackingManager : MonoBehaviour
 
     private bool wasPressed;
 
+    [SerializeField] private float openThreshold = 0.2f;
+
     // GazeReticle must stay active (never SetActive(false)) - its PXR_OverLay compositor layer
     // only registers correctly with the compositor if the GameObject is active from scene load,
     // matching the working SurgeryVideoScreen_HeatOverlay. A reticle whose GameObject starts
@@ -91,14 +93,18 @@ public class EyeTrackingManager : MonoBehaviour
         PXR_EyeTracking.GetLeftEyeGazeOpenness(out float leftOpenness);
         PXR_EyeTracking.GetRightEyeGazeOpenness(out float rightOpenness);
         Debug.Log($"[EyeTrackingManager] L status={leftEyeStatus} openness={leftOpenness:F2} | R status={rightEyeStatus} openness={rightOpenness:F2}");
-        
+
+        // Require both eyes open, not just one - a real blink closes both, so this avoids one
+        // noisy eye's reading alone flagging a false blink during otherwise-normal tracking.
+        bool eyesOpen = leftOpenness > openThreshold && rightOpenness > openThreshold;
+
         Vector3 correctedGazeVectorLocal = CalibrationManager.CalibrationCorrectionLocal * combineEyeGazeVector;
         Vector3 correctedGazeVectorWorld = originPoseMatrix.MultiplyVector(headPoseMatrix.MultiplyVector(correctedGazeVectorLocal));
 
         SpotLight.transform.position = combineEyeGazeOriginInWorldSpace;
         SpotLight.transform.rotation = Quaternion.LookRotation(correctedGazeVectorWorld, Vector3.up);
-        
-        GazeTargetControl(combineEyeGazeOriginInWorldSpace, correctedGazeVectorWorld);
+
+        GazeTargetControl(combineEyeGazeOriginInWorldSpace, correctedGazeVectorWorld, eyesOpen);
 
         string report = "Gaze Report (seconds looked at each object):\n\n";
         foreach (KeyValuePair<string, float> entry in dwellTimes)
@@ -110,7 +116,7 @@ public class EyeTrackingManager : MonoBehaviour
     }
 
 
-    void GazeTargetControl(Vector3 origin,Vector3 vector)
+    void GazeTargetControl(Vector3 origin, Vector3 vector, bool eyesOpen)
     {
         Ray ray = new Ray(origin,vector);
         if (Physics.SphereCast(origin,0.0005f,vector,out hitinfo))
@@ -132,7 +138,7 @@ public class EyeTrackingManager : MonoBehaviour
                 // data, with a same-collider check before trusting it.
                 if (Physics.Raycast(origin, vector, out RaycastHit uvHit, 100f) && uvHit.collider == hitinfo.collider)
                 {
-                    heatmap.StampAt(uvHit);
+                    heatmap.StampAt(uvHit, eyesOpen);
                 }
 
                 string objName = hitinfo.collider.gameObject.name;

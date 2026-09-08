@@ -310,8 +310,37 @@ public class MeshGazeHeatmap : MonoBehaviour
         heatTexture.SetPixels(heatPixels);
         heatTexture.Apply();
     }
-    
 
+    private void DrawDot(Vector 2 uv, Color color, int radius){
+        int centerX = Mathf.RoundToInt(uv.x * textureSize);
+        int centerY = Mathf.RoundToInt(uv.y * textureSize);
+
+        for (int y = - radius; y <= radius; y++){
+            int py = centerY + y;
+        if (py < 0 || py >= textureSize) continue;
+        int rowStart = py * textureSize;
+
+        for (int x = -radius; x <= radius; x++)
+        {
+            int px = centerX + x;
+            if (px < 0 || px >= textureSize) continue;
+            if (Mathf.Sqrt(x * x + y * y) > radius) continue;
+
+            heatPixels[rowStart + px] = color;
+        }
+        }
+
+    }
+
+    private void DrawLine(Vector2 uv1, Vector2 uv2, Color color, int radius){
+        float distancePixels = Vector2.Distance(uv1 * textureSize, uv2 * textureSize);
+        int steps = Mathf.Max(1, Mathf.CeilToInt(distPixel / Mathf.Max(1, radius)));
+
+        for(int = 0; i <= steps; i++){
+            float t=i / (float) steps;
+            DrawDot(Vector2.Lerp(uv1, uv2,t), color, radius);
+        }
+    }
 
 
     // Only does anything in instantReticleMode - StampAt() only runs while this object is the

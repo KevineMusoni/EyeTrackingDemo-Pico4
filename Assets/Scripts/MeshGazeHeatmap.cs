@@ -39,6 +39,9 @@ public class MeshGazeHeatmap : MonoBehaviour
     // whole purpose is a live gaze indicator (ReticleDemoVideoScreen).
     [SerializeField] private bool instantReticleMode = false;
     [SerializeField] private Color reticleColor = Color.cyan;
+    [SerializeField] private float tailDurationSeconds = 0.5f; //how far in time the trail reaches. this buffer fills up fast - start short and lengthen only if the trail looks too sparse on-device.
+    [SerializeField] private int tailMinRadiusPixels = 2; // Floor on the oldest (about-to-be-evicted) point's radius. Without this, Lerp'ing radius down
+    // to 0 would make the tail's far end shrink to nothing before RemoveAll() actually drops it -a dead invisible stretch at the end instead of a smooth taper.
 
     // Frame-tracking for instantReticleMode's Update(): StampAt() only runs while this object is
     // the live gaze target, so there's no signal that gaze moved AWAY from it other than "a
@@ -142,6 +145,9 @@ public class MeshGazeHeatmap : MonoBehaviour
     {
         public List<GazeSample> samples = new List<GazeSample>();
     }
+
+    // recent live samples still within tailDurationSeconds, oldest first. Reuses GazeSample (not a new type) so this stays the same shape recordSamples/SaveRecording() already serializes - one less type to keep in sync if the tail is ever saved/ replayed like DivergenceReplayScreen.
+    private readonly List<GazeSample> tailBuffer = new List<GazeSample>();
 
     private GazeRecording recording = new GazeRecording();
 
@@ -259,16 +265,54 @@ public class MeshGazeHeatmap : MonoBehaviour
 
         if (instantReticleMode)
         {
+            // Unchanged from the original single-dot code - Update() below still relies on these to
+            // detect "gaze left this frame," regardless of how the draw itself now works.
             lastStampFrame = Time.frameCount;
             needsClear = true;
-            ClearPixelsInPlace(heatPixels);
-            PaintPixels(heatTexture, uv, radius, 1f, reticleColor, applyImmediately: true);
+
+            // Push this frame's real raycast result onto the trail - not a prediction or smoothed
+            // value, the exact same uv/radius StampAt() already computed above.
+            tailBuffer.Add(new GazeSample { u = uv.x, v = uv.y, radius = radius, time = Time.time });
+
+            // Drop anything older than the trail's window. Runs every frame (not just on some timer)
+            // so a point's effective age - and thus its drawn size/alpha in DrawTail() - advances
+            // smoothly frame to frame instead of jumping when some periodic check finally catches up.
+            tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
+
+            DrawTail();
         }
         else
         {
             PaintAt(uv, radius, heatPerSecond * Time.deltaTime);
         }
     }
+
+
+    private void DrawTail(){
+        ClearPixelsInPlace(heatPixels);
+        Vector2? prevUV = null;
+
+        for(int i = 0; i < tailBuffer.Count; i++){
+            GazeSample s = tailBuffer[i];
+            float age = Mathf.Clamp01((Time.time - s.time) / tailDurationSeconds);
+            int r = Mathf.RoundToInt(Mathf.Lerp(s.radius, tailMinRadiusPixels, age));
+
+            Colour c = new Color(reticleColor.r, reticleColor.g, reticleColor.b, Mathf.Lerp(reticleColor.a, 0.1f, age));
+            Vector2 uv = new Vector2(s.u, s.v);
+
+            if (prevUV.HasValue)
+                DrawLine(prevUV.Value, uv, c, r);
+            else
+                DrawDot(uv, c, r);
+            
+            prevUV = uv;
+        }
+        heatTexture.SetPixels(heatPixels);
+        heatTexture.Apply();
+    }
+    
+
+
 
     // Only does anything in instantReticleMode - StampAt() only runs while this object is the
     // live gaze target, so there's no other hook to notice "gaze just moved away, the last

@@ -43,6 +43,19 @@ public class MeshGazeHeatmap : MonoBehaviour
     [SerializeField] private int tailMinRadiusPixels = 2; // Floor on the oldest (about-to-be-evicted) point's radius. Without this, Lerp'ing radius down
     // to 0 would make the tail's far end shrink to nothing before RemoveAll() actually drops it -a dead invisible stretch at the end instead of a smooth taper.
 
+    // Rejects any stamp whose UV falls outside this range - defaults to accepting everything
+    // (0-1), so every other screen's behavior is unchanged. Only meant to be narrowed on a screen
+    // whose MeshCollider covers more area than its actual visible content (e.g.
+    // ReticleDemoVideoScreen's video has black letterbox bars baked in on the left/right - the
+    // collider still spans the full quad, so a gaze ray aimed at something else entirely nearby
+    // could graze that margin and register a spurious hit there). Keeping the full collider
+    // (rather than shrinking its mesh) means hit.textureCoord stays correctly aligned to the full
+    // texture - this just refuses to act on samples that land outside the real content.
+    [SerializeField] private float validUMin = 0f;
+    [SerializeField] private float validUMax = 1f;
+    [SerializeField] private float validVMin = 0f;
+    [SerializeField] private float validVMax = 1f;
+
     // Frame-tracking for instantReticleMode's Update(): StampAt() only runs while this object is
     // the live gaze target, so there's no signal that gaze moved AWAY from it other than "a
     // frame went by with no StampAt() call." needsClear ensures the clear-and-reupload only
@@ -256,6 +269,23 @@ public class MeshGazeHeatmap : MonoBehaviour
         }
 
         Vector2 uv = hit.textureCoord;
+
+        // Reject anything outside the real content area (e.g. a letterbox margin the collider
+        // still covers) before it can be recorded, painted, or added to the tail - see the
+        // validUMin/Max/validVMin/Max field comments above. Defaults (0-1) accept everything, so
+        // this is a no-op on every screen except ones that explicitly narrow the range.
+        bool inValidRange = uv.x >= validUMin && uv.x <= validUMax && uv.y >= validVMin && uv.y <= validVMax;
+
+        // Temporary - logs EVERY stamp near the boundary (accepted or rejected), not just
+        // rejected ones, so the accept/reject transition can be watched against where the real
+        // video edge actually is on-device. Remove once the range is confirmed correct.
+        Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' uv=({uv.x:F2}, {uv.y:F2}) - {(inValidRange ? "ACCEPTED" : "rejected")} (range {validUMin:F2}-{validUMax:F2}, {validVMin:F2}-{validVMax:F2}).");
+
+        if (!inValidRange)
+        {
+            return;
+        }
+
         int radius = Mathf.RoundToInt(ComputeBrushRadiusPixels(hit.triangleIndex));
 
         if (recordSamples)
@@ -271,7 +301,7 @@ public class MeshGazeHeatmap : MonoBehaviour
             needsClear = true;
 
             if (eyesOpen){
-                tailBuffer .Add(new GazeSample {u = uv.x, v = uv.y, radius = radius, time = Time.time});
+                tailBuffer.Add(new GazeSample {u = uv.x, v = uv.y, radius = radius, time = Time.time});
                 tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
 
             }
@@ -339,12 +369,6 @@ public class MeshGazeHeatmap : MonoBehaviour
         }
     }
 
-
-    // Only does anything in instantReticleMode - StampAt() only runs while this object is the
-    // live gaze target, so there's no other hook to notice "gaze just moved away." Unlike the
-    // original single-dot version (which just blanked the texture once), tail mode has to keep
-    // the trail fading on its own here for as long as tailBuffer still has points left - StampAt()
-    // stops calling DrawTail() the moment gaze leaves, so nothing else will.
     private void Update()
     {
         if (!instantReticleMode) return;
@@ -360,8 +384,7 @@ public class MeshGazeHeatmap : MonoBehaviour
         // clear already happened, there's nothing to do.
         if (tailBuffer.Count == 0 && !needsClear) return;
 
-        // Evict here too, not just inside StampAt() - this is what lets the trail keep shrinking
-        // in real time even while gaze is elsewhere and StampAt() isn't running RemoveAll() anymore.
+
         tailBuffer.RemoveAll(s => Time.time - s.time > tailDurationSeconds);
 
         if (tailBuffer.Count > 0)

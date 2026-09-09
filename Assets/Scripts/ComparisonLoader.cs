@@ -180,16 +180,16 @@ public class ComparisonLoader : MonoBehaviour
         // hunting for two separate "loaded ..." lines further apart in the stream.
         Debug.Log($"[ComparisonLoader] Specialist: {(loadedSpecialist ? specialistSamples.Count.ToString() : "none")} samples | Trainee: {(loadedTrainee ? traineeSamples.Count.ToString() : "none")} samples");
 
+        // Merges heatTexture/comparisonTexture into combinedTexture - the texture actually
+        // displayed on ReportScreen. Without this, nothing painted above ever becomes visible.
         if (loadedSpecialist || loadedTrainee)
         {
             heatmap.CombineComparisonBuffers();
         }
 
-        // Only meaningful with both sides present - "diverged from the trainee" has no meaning
-        // if there's no trainee data (or no specialist data) to diverge from.
         if (loadedSpecialist && loadedTrainee)
         {
-            MarkPeakDivergence(specialistSamples, traineeSamples);
+            MarkPeakDivergence();
         }
 
         // No longer deleted here. This used to consume the trainee's file so a later fresh
@@ -206,51 +206,61 @@ public class ComparisonLoader : MonoBehaviour
         LoadCompleted?.Invoke();
     }
 
-    // Buckets both sessions' samples by whole second, finds the second where the specialist's
-    // sample count minus the trainee's sample count is largest (specialist was actively looking
-    // a lot in that second, trainee comparatively wasn't), then marks the specialist's average
-    // gaze location during that second in red on the final combined texture.
-    private void MarkPeakDivergence(List<GazeSample> specialistSamples, List<GazeSample> traineeSamples)
+    // Finds the pixel where the specialist's accumulated gaze (dwell time, via alpha buildup -
+    // see MeshGazeHeatmap.PaintPixels) is highest while the trainee's is lowest at that SAME
+    // location - a genuine "the specialist focused here, the trainee largely didn't" spot, not
+    // just a second where one side had more tracked samples than the other.
+    //
+    // Reads GetPixels() once each (a bulk operation, not per-pixel GetPixel calls - same
+    // performance reasoning as the SetPixels/Apply pattern used everywhere else in this project)
+    // since heatTexture/comparisonTexture are already fully painted by PaintSamples() above by
+    // the time this runs.
+    private void MarkPeakDivergence()
     {
-        if (specialistSamples.Count == 0)
+        if (heatmap.HeatTexture == null || heatmap.ComparisonTexture == null)
         {
             return;
         }
 
-        Dictionary<int, int> traineeCountBySecond = traineeSamples
-            .GroupBy(s => Mathf.FloorToInt(s.time))
-            .ToDictionary(g => g.Key, g => g.Count());
+        // PaintSamples() painted via PaintAtColorBatched (applyImmediately: false) - that only
+        // writes MeshGazeHeatmap's private in-memory backing arrays, never uploads to the GPU
+        // texture. Without flushing first, GetPixels() below would read stale/blank data instead
+        // of what was actually painted.
+        heatmap.FlushToGpu(heatmap.HeatTexture);
+        heatmap.FlushToGpu(heatmap.ComparisonTexture);
 
-        List<IGrouping<int, GazeSample>> specialistBySecond = specialistSamples
-            .GroupBy(s => Mathf.FloorToInt(s.time))
-            .ToList();
+        Color[] specialistPixels = heatmap.HeatTexture.GetPixels();
+        Color[] traineePixels = heatmap.ComparisonTexture.GetPixels();
+        int width = heatmap.HeatTexture.width;
+        int height = heatmap.HeatTexture.height;
 
-        int bestSecond = -1;
-        int bestDivergence = int.MinValue;
-        foreach (IGrouping<int, GazeSample> group in specialistBySecond)
+        int bestIndex = -1;
+        float bestGap = 0f; // only interested in a real specialist-more-than-trainee gap, not a tie or reversal
+
+        for (int i = 0; i < specialistPixels.Length; i++)
         {
-            int traineeCount = traineeCountBySecond.TryGetValue(group.Key, out int c) ? c : 0;
-            int divergence = group.Count() - traineeCount;
-            if (divergence > bestDivergence)
+            float gap = specialistPixels[i].a - traineePixels[i].a;
+            if (gap > bestGap)
             {
-                bestDivergence = divergence;
-                bestSecond = group.Key;
+                bestGap = gap;
+                bestIndex = i;
             }
         }
 
-        if (bestSecond < 0)
+        if (bestIndex < 0)
         {
+            Debug.Log("[ComparisonLoader] No location where specialist dwelled more than trainee - skipping peak marker.");
             return;
         }
 
-        List<GazeSample> peakSamples = specialistSamples.Where(s => Mathf.FloorToInt(s.time) == bestSecond).ToList();
-        float avgU = peakSamples.Average(s => s.u);
-        float avgV = peakSamples.Average(s => s.v);
-        int traineeCountAtPeak = traineeCountBySecond.TryGetValue(bestSecond, out int tc) ? tc : 0;
+        int x = bestIndex % width;
+        int y = bestIndex / width;
+        float u = (x + 0.5f) / width;
+        float v = (y + 0.5f) / height;
 
-        heatmap.PaintAtColor(new Vector2(avgU, avgV), Mathf.RoundToInt(peakMarkerRadiusPixels), 1f, peakDivergenceColor, heatmap.CombinedTexture);
+        heatmap.PaintAtColor(new Vector2(u, v), Mathf.RoundToInt(peakMarkerRadiusPixels), 1f, peakDivergenceColor, heatmap.CombinedTexture);
 
-        Debug.Log($"[ComparisonLoader] Peak divergence at second {bestSecond} (specialist {peakSamples.Count} vs trainee {traineeCountAtPeak} samples) - marked red at ({avgU:F2}, {avgV:F2}).");
+        Debug.Log($"[ComparisonLoader] Peak coverage gap at ({u:F2}, {v:F2}) - specialist alpha {specialistPixels[bestIndex].a:F2} vs trainee alpha {traineePixels[bestIndex].a:F2}.");
     }
 
     private string ResolveMostRecentTraineePath()

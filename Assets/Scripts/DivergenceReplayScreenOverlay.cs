@@ -48,7 +48,6 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
-    [SerializeField] private RectTransform peakDivergenceMarker;
 
 
 
@@ -74,9 +73,33 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     private Texture2D dotsTexture;
     private Color[] dotsPixels;
 
-    // Computed once in Start(), read every frame in Update() - -1 means "never computed" (e.g.
-    // one side had no data at all), in which case no ring is ever drawn.
-    private int peakDivergenceSecond = -1;
+    [Serializable]
+    private class VideoPhase
+    {
+        public string name;
+        public float startSecond;
+        public float endSecond;
+
+    // Filled in once by FindPeakDivergenceInRange() in Start() - not serialized, computed fresh every load from the actual recorded samples, same as the old single peakDivergenceSecond was.
+    [NonSerialized] public int peakDivergenceSecond = -1;
+
+    [NonSerialized] public Vector2 peakSpecialistUV;
+    [NonSerialized] public Vector2 peakTraineeUV;
+
+    }
+
+    // Editable in the Inspector rather than hardcorded, same reasoning as CalibrationManager.calibrationPointLocalOffsets, can be retimed here without touching code if the video ever changes.
+    [SerializeField]
+    private VideoPhase[] videoPhases = new VideoPhase[]
+    {
+        new VideoPhase { name = "Intro", startSecond = 0f, endSecond = 06f},
+        new VideoPhase {name = "Applying Seal", startSecond = 6f, endSecond = 14f},
+        new VideoPhase {name = "Outro", startSecond = 14f, endSecond = 20f},
+    };
+
+    // one marker per phase, smae anchorig/ sizing approach as the old sigle peakDivergence Marker
+    // used - assign 3 slider-marker RectTransforms here, in the same order as videoPhases above.
+    [SerializeField] private RectTransform[] phaseDivergenceMarkers;
 
     // No more "wait for the main video, stay hidden until ready" dance - that only existed to
     // survive coexisting mid-session with the live surgery video in EyeTrackingDemo. This screen
@@ -96,7 +119,12 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         // Requires both sides loaded, this must run after both lists above are assigned -
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
-        peakDivergenceSecond = FindPeakDivergenceSecond();
+        // One call per phase, so every phase gets its own flagged moment instead of one spike
+        // anywhere in the video dominating all the others.
+        foreach (VideoPhase phase in videoPhases)
+        {
+            FindPeakDivergenceInRange(phase);
+        }
 
         if (replayProgressSlider != null)
         {
@@ -104,18 +132,26 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             replayProgressSlider.maxValue = videoLengthSeconds;
         }
 
-        if (peakDivergenceMarker != null && peakDivergenceSecond >= 0 && replayProgressSlider != null){
-            // Assumes the marker's RectTransform is anchored to the left edge of the same bar the slider fill, with its pivot at (0,0.5)
-
+        if (replayProgressSlider != null && phaseDivergenceMarkers != null)
+        {
+            // Assumes each marker's RectTransform is anchored to the left edge of the same bar
+            // the slider fill, with its pivot at (0,0.5) - same assumption the old single marker made.
             float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
             float secondWidth = barWidth / videoLengthSeconds;
-            float startX = peakDivergenceSecond * secondWidth;
 
-            peakDivergenceMarker.anchoredPosition = new Vector2(startX, peakDivergenceMarker.anchoredPosition.y);
-            peakDivergenceMarker.sizeDelta = new Vector2(secondWidth, peakDivergenceMarker.sizeDelta.y);
-    }
+            for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
+            {
+                VideoPhase phase = videoPhases[i];
+                RectTransform marker = phaseDivergenceMarkers[i];
+                if (marker == null || phase.peakDivergenceSecond < 0) continue;
 
-        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
+                float startX = phase.peakDivergenceSecond * secondWidth;
+                marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
+                marker.sizeDelta = new Vector2(secondWidth, marker.sizeDelta.y);
+            }
+        }
+
+        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, phases=[{string.Join(", ", videoPhases.Select(p => $"{p.name}:{p.peakDivergenceSecond}"))}].");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
         dotsPixels = new Color[textureSize * textureSize];
@@ -200,18 +236,19 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         // A null sample means that person wasn't looking at the video around this exact moment -
         // no dot drawn that frame rather than showing a stale/wrong position.
-        GazeSample specialistNow = FindSampleNearTime(specialistSamples, elapsed);
         DrawTail(specialistSamples, elapsed, specialistDotColor);
-
-        GazeSample traineeNow = FindSampleNearTime(traineeSamples, elapsed);
         DrawTail(traineeSamples, elapsed, traineeDotColor);
 
-        // apply the ring to the highest peak point - Mathf.FloorToInt matches
-        // the same whole-second bucketing FindPeakDivergenceSecond used to find it.
-        if (peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == peakDivergenceSecond)
+        // apply the ring to whichever phase's flagged second is currently playing - Mathf.FloorToInt
+        // matches the same whole-second bucketing FindPeakDivergenceInRange used to find it.
+        foreach (VideoPhase phase in videoPhases)
         {
-            if (specialistNow != null) DrawRing(specialistNow.u, specialistNow.v, peakHighlightColor);
-            if (traineeNow != null) DrawRing(traineeNow.u, traineeNow.v, peakHighlightColor);
+            if (phase.peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == phase.peakDivergenceSecond)
+            {
+                DrawRing(phase.peakSpecialistUV.x, phase.peakSpecialistUV.y, peakHighlightColor);
+                DrawRing(phase.peakTraineeUV.x, phase.peakTraineeUV.y, peakHighlightColor);
+                break; // only one phase's flagged second can be playing at a time
+            }
         }
 
         dotsTexture.SetPixels(dotsPixels);
@@ -296,28 +333,63 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     // Calculate the difference per second where the specialist's and trainee's gaze positions were furthest
     // apart (both must have a sample near that second - can't compare a gap against a value).
-    private int FindPeakDivergenceSecond()
+    // private int FindPeakDivergenceSecond()
+    // {
+    //     // they both start at -1 because nothing is found yet, distance is always >= 0
+    //     int bestSecond = -1; // method value to return global maximum - highest peak
+    //     float bestDistance = -1f; // method to calculate difference between the trainee and specialist dots
+
+    //     for (int second = 0; second < videoLengthSeconds; second++)
+    //     {
+    //         GazeSample specialistAt = FindSampleNearTime(specialistSamples, second);
+    //         GazeSample traineeAt = FindSampleNearTime(traineeSamples, second);
+    //         if (specialistAt == null || traineeAt == null) continue;
+
+    //         float distance = Vector2.Distance(new Vector2(specialistAt.u, specialistAt.v), new Vector2(traineeAt.u, traineeAt.v));
+    //         if (distance > bestDistance)
+    //         {
+    //             bestDistance = distance;
+    //             bestSecond = second;
+
+    //             // cache the exact positions that produced this distance - Update() draws the ring here for the rest of the method's lifetime, not at whatever gaze position is live when the flagged second is actually playing back. 
+    //             peakSpecialistUV = new Vector2(specialistAt.u, specialistAt.v);
+    //             peakTraineeUV = new Vector2(traineeAt.u, traineeAt.v);
+
+    //         }
+    //     }
+
+    //     return bestSecond;
+    // }
+
+    // Same distance-based comparison as before, restricted to one phase's own time range - called
+// once per phase instead of once for the whole video, so every phase gets its own flagged
+// moment instead of whichever single spike is biggest across all 20 seconds dominating the rest.
+private void FindPeakDivergenceInRange(VideoPhase phase)
+{
+    int bestSecond = -1;
+    float bestDistance = -1f;
+
+    int startWhole = Mathf.FloorToInt(phase.startSecond);
+    int endWhole = Mathf.CeilToInt(phase.endSecond);
+
+    for (int second = startWhole; second < endWhole; second++)
     {
-        // they both start at -1 because nothing is found yet, distance is always >= 0
-        int bestSecond = -1; // method value to return global maximum - highest peak
-        float bestDistance = -1f; // method to calculate difference between the trainee and specialist dots
+        GazeSample specialistAt = FindSampleNearTime(specialistSamples, second);
+        GazeSample traineeAt = FindSampleNearTime(traineeSamples, second);
+        if (specialistAt == null || traineeAt == null) continue;
 
-        for (int second = 0; second < videoLengthSeconds; second++)
+        float distance = Vector2.Distance(new Vector2(specialistAt.u, specialistAt.v), new Vector2(traineeAt.u, traineeAt.v));
+        if (distance > bestDistance)
         {
-            GazeSample specialistAt = FindSampleNearTime(specialistSamples, second);
-            GazeSample traineeAt = FindSampleNearTime(traineeSamples, second);
-            if (specialistAt == null || traineeAt == null) continue;
-
-            float distance = Vector2.Distance(new Vector2(specialistAt.u, specialistAt.v), new Vector2(traineeAt.u, traineeAt.v));
-            if (distance > bestDistance)
-            {
-                bestDistance = distance;
-                bestSecond = second;
-            }
+            bestDistance = distance;
+            bestSecond = second;
+            phase.peakSpecialistUV = new Vector2(specialistAt.u, specialistAt.v);
+            phase.peakTraineeUV = new Vector2(traineeAt.u, traineeAt.v);
         }
-
-        return bestSecond;
     }
+
+    phase.peakDivergenceSecond = bestSecond;
+}
 
     private void DrawDot(float u, float v, Color color, int radius)
     {

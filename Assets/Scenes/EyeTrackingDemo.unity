@@ -2345,8 +2345,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519000001}
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 3.2, y: 1.3, z: 1}
-  m_LocalScale: {x: 1.7, y: 0.96, z: 1}
+  m_LocalPosition: {x: 6.46, y: 1.3, z: 1}
+  m_LocalScale: {x: 7.68, y: 4.32, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -2467,6 +2467,7 @@ MonoBehaviour:
   peakDivergenceColor: {r: 1, g: 0, b: 0, a: 1}
   peakMarkerRadiusPixels: 10
   amountPerSample: 0.014
+  replayRadiusPixels: 20
   initialLoadDelaySeconds: 23
   videoPlayer: {fileID: 598457041}
   legendObjectsToHideForSpecialist:
@@ -2550,8 +2551,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519000011}
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 3.2, y: 1.3, z: 1}
-  m_LocalScale: {x: 1.7, y: 0.96, z: 1}
+  m_LocalPosition: {x: 6.45, y: 1.3, z: 1}
+  m_LocalScale: {x: 7.68, y: 4.32, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -2583,8 +2584,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519000021}
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 3, y: 0.65, z: 0.7}
-  m_LocalScale: {x: 0.08, y: 0.08, z: 1}
+  m_LocalPosition: {x: 6.16, y: -0.99, z: 0.72}
+  m_LocalScale: {x: 0.2, y: 0.2, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -2666,8 +2667,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519000031}
   m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 3, y: 0.65, z: 1.3}
-  m_LocalScale: {x: 0.08, y: 0.08, z: 1}
+  m_LocalPosition: {x: 6.216, y: -0.99, z: 3.59}
+  m_LocalScale: {x: 0.2, y: 0.2, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -3774,7 +3775,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 698652609}
   m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 0, y: 0, z: -5.029}
+  m_LocalPosition: {x: 0, y: 0, z: -5.115}
   m_LocalScale: {x: 1, y: 200, z: 200}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3783,7 +3784,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 598.3, y: -151.2}
+  m_AnchoredPosition: {x: 1249, y: -469}
   m_SizeDelta: {x: 20.24, y: 5}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &698652611
@@ -3833,8 +3834,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 1
-  m_fontSizeBase: 1
+  m_fontSize: 2
+  m_fontSizeBase: 2
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -3869,7 +3870,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 9.455576, y: 2.153913, z: 10.317306, w: 2.681332}
+  m_margin: {x: 9.455576, y: 2.153913, z: 9.613475, w: 2.681332}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   _SortingLayer: 0
@@ -4370,7 +4371,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1111762468}
   m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 0, y: 0, z: -3.951}
+  m_LocalPosition: {x: 0, y: 0, z: -2.72}
   m_LocalScale: {x: 1, y: 200, z: 200}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4379,7 +4380,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 598.3, y: -148.6}
+  m_AnchoredPosition: {x: 1249, y: -468}
   m_SizeDelta: {x: 20.24, y: 5}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &801714594
@@ -4429,8 +4430,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 1
-  m_fontSizeBase: 1
+  m_fontSize: 2
+  m_fontSizeBase: 2
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -4465,7 +4466,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 9.455576, y: 2.153913, z: 9.239686, w: 2.208159}
+  m_margin: {x: 9.014582, y: 2.153913, z: 9.239686, w: 2.208159}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   _SortingLayer: 0
@@ -6219,6 +6220,10 @@ PrefabInstance:
       value: HeatMapTestObject
       objectReference: {fileID: 0}
     - target: {fileID: 753785460207422148, guid: ff47f444dbf93a1439d5b3c923b4e157, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 753785460207422148, guid: ff47f444dbf93a1439d5b3c923b4e157, type: 3}
       propertyPath: m_TagString
       value: Charater
       objectReference: {fileID: 0}
@@ -7180,7 +7185,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!95 &1371746387
 Animator:
   serializedVersion: 4

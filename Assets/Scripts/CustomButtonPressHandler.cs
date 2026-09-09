@@ -43,6 +43,13 @@ public class CustomButtonPressHandler : MonoBehaviour
         button = GetComponent<Button>();
         buttonRect = (RectTransform)transform;
 
+        // Auto-discover if nothing was wired by hand - FindObjectsOfType is one-time Awake() cost, not a per-frame one, so this doesn't add ongoing overhead. Every button in the scene ends up finding the same two ray interactors this way, the same as if they'd all been manually wired to them individually.
+        // FindObjectsOfType, not the newer FindObjectsByType - this project targets Unity
+        // 2021.3.13f1, which predates FindObjectsByType/FindObjectsSortMode.
+        if (rayInteractors == null || rayInteractors.Length == 0){
+            rayInteractors = FindObjectsOfType<XRRayInteractor>();
+        }
+
         int count = rayInteractors?.Length ?? 0;
         controllers = new ActionBasedController[count];
         wasPressed = new bool[count];

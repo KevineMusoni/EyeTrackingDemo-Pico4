@@ -3046,14 +3046,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   textureSize: 512
-  brushRadiusWorldMeters: 0.03
+  brushRadiusWorldMeters: 0.06
   minBrushRadiusPixels: 2
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 1
   reticleColor: {r: 0, g: 1, b: 1, a: 1}
   tailDurationSeconds: 0.5
-  tailMinRadiusPixels: 2
+  tailMinRadiusPixels: 4
   validUMin: 0.15
   validUMax: 0.85
   validVMin: 0

@@ -36,6 +36,16 @@ public class ComparisonLoader : MonoBehaviour
     // this is a fixed per-sample value rather than live Time.deltaTime.
     [SerializeField] private float amountPerSample = 0.014f;
 
+    // Fixed size in texture pixels, not tied to whichever screen originally recorded the data -
+    // same reasoning as peakMarkerRadiusPixels below. Recorded sample.radius reflects the source
+    // screen's OWN brushRadiusWorldMeters (e.g. ReticleDemoVideoScreen's small live-reticle
+    // brush), which stays whatever it needs to be for that screen's own live look and isn't
+    // meant to double as "how blended this comparison heatmap should look." Using a fixed replay
+    // radius here instead means ReportScreen always presents as a proper blended heatmap -
+    // overlapping stamps building up alpha (duration) into a smooth gradient - regardless of
+    // which screen's recording it's replaying.
+    [SerializeField] private float replayRadiusPixels = 20f;
+
     // Same reasoning as GazeReviewLoader.initialLoadDelaySeconds - the trainee's own session
     // needs time to actually exist on disk before this can load it. Deliberately 1s LATER than
     // GazeReviewLoader's default (22f): both loaders auto-resolve the same trainee file, but only
@@ -277,9 +287,10 @@ public class ComparisonLoader : MonoBehaviour
     // backing arrays directly and does the one real upload itself.
     private void PaintSamples(List<GazeSample> samples, Color color, Texture2D target)
     {
+        int radius = Mathf.RoundToInt(replayRadiusPixels);
         foreach (GazeSample sample in samples)
         {
-            heatmap.PaintAtColorBatched(new Vector2(sample.u, sample.v), Mathf.RoundToInt(sample.radius), amountPerSample, color, target);
+            heatmap.PaintAtColorBatched(new Vector2(sample.u, sample.v), radius, amountPerSample, color, target);
         }
     }
 

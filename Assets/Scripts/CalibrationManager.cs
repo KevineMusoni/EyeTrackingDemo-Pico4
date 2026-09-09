@@ -503,7 +503,7 @@ public class CalibrationManager : MonoBehaviour
         return new Color(1f, 0.5f, 0f);
     }
 
-    // Logged only, not shown on-screen - a linear 0deg=100%/5deg=0% mapping is disconnected
+    //Logged only not shown on screen, a linear 0deg=100%/5deg=0% mapping is disconnected
     // from the actual pass/fail semantics (e.g. exactly 3deg, the pass threshold, displays as
     // 40%, reading like a poor result despite being a genuine pass).
     private static int GetBiasQualityPercent(float averageBiasDegrees)

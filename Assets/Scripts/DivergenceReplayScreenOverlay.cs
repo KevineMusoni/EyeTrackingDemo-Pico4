@@ -48,6 +48,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
+    [SerializeField] private RectTransform peakDivergenceMarker;
 
 
 
@@ -80,12 +81,12 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         public float startSecond;
         public float endSecond;
 
-    // Filled in once by FindPeakDivergenceInRange() in Start() - not serialized, computed fresh every load from the actual recorded samples, same as the old single peakDivergenceSecond was.
-    [NonSerialized] public int peakDivergenceSecond = -1;
-
-    [NonSerialized] public Vector2 peakSpecialistUV;
-    [NonSerialized] public Vector2 peakTraineeUV;
-
+        // Filled in once by FindKeyAreaAndDwellTimes() in Start() - not serialized, computed fresh
+        // every load from the actual recorded samples.
+        [NonSerialized] public bool hasKeyArea;
+        [NonSerialized] public Vector2 keyAreaUV;
+        [NonSerialized] public float specialistDwellSeconds;
+        [NonSerialized] public float traineeDwellSeconds;
     }
 
     // Editable in the Inspector rather than hardcorded, same reasoning as CalibrationManager.calibrationPointLocalOffsets, can be retimed here without touching code if the video ever changes.
@@ -119,12 +120,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         // Requires both sides loaded, this must run after both lists above are assigned -
         // compares actual gaze POSITION per second, matching what the two dots on screen show.
-        // One call per phase, so every phase gets its own flagged moment instead of one spike
-        // anywhere in the video dominating all the others.
-        foreach (VideoPhase phase in videoPhases)
-        {
-            FindPeakDivergenceInRange(phase);
-        }
+        // peakDivergenceSecond = FindPeakDivergenceSecond();
+
+
 
         if (replayProgressSlider != null)
         {
@@ -132,26 +130,18 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             replayProgressSlider.maxValue = videoLengthSeconds;
         }
 
-        if (replayProgressSlider != null && phaseDivergenceMarkers != null)
-        {
-            // Assumes each marker's RectTransform is anchored to the left edge of the same bar
-            // the slider fill, with its pivot at (0,0.5) - same assumption the old single marker made.
+        if (peakDivergenceMarker != null && peakDivergenceSecond >= 0 && replayProgressSlider != null){
+            // Assumes the marker's RectTransform is anchored to the left edge of the same bar the slider fill, with its pivot at (0,0.5)
+
             float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
             float secondWidth = barWidth / videoLengthSeconds;
+            float startX = peakDivergenceSecond * secondWidth;
 
-            for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
-            {
-                VideoPhase phase = videoPhases[i];
-                RectTransform marker = phaseDivergenceMarkers[i];
-                if (marker == null || phase.peakDivergenceSecond < 0) continue;
+            peakDivergenceMarker.anchoredPosition = new Vector2(startX, peakDivergenceMarker.anchoredPosition.y);
+            peakDivergenceMarker.sizeDelta = new Vector2(secondWidth, peakDivergenceMarker.sizeDelta.y);
+    }
 
-                float startX = phase.peakDivergenceSecond * secondWidth;
-                marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
-                marker.sizeDelta = new Vector2(secondWidth, marker.sizeDelta.y);
-            }
-        }
-
-        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, phases=[{string.Join(", ", videoPhases.Select(p => $"{p.name}:{p.peakDivergenceSecond}"))}].");
+        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
         dotsPixels = new Color[textureSize * textureSize];
@@ -239,16 +229,12 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         DrawTail(specialistSamples, elapsed, specialistDotColor);
         DrawTail(traineeSamples, elapsed, traineeDotColor);
 
-        // apply the ring to whichever phase's flagged second is currently playing - Mathf.FloorToInt
-        // matches the same whole-second bucketing FindPeakDivergenceInRange used to find it.
-        foreach (VideoPhase phase in videoPhases)
+        // apply the ring to the highest peak point - Mathf.FloorToInt matches
+        // the same whole-second bucketing FindPeakDivergenceSecond used to find it.
+        if (peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == peakDivergenceSecond)
         {
-            if (phase.peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == phase.peakDivergenceSecond)
-            {
-                DrawRing(phase.peakSpecialistUV.x, phase.peakSpecialistUV.y, peakHighlightColor);
-                DrawRing(phase.peakTraineeUV.x, phase.peakTraineeUV.y, peakHighlightColor);
-                break; // only one phase's flagged second can be playing at a time
-            }
+            DrawRing(peakSpecialistUV.x, peakSpecialistUV.y, peakHighlightColor);
+            DrawRing(peakTraineeUV.x, peakTraineeUV.y, peakHighlightColor);
         }
 
         dotsTexture.SetPixels(dotsPixels);
@@ -388,7 +374,7 @@ private void FindPeakDivergenceInRange(VideoPhase phase)
         }
     }
 
-    phase.peakDivergenceSecond = bestSecond;
+    phase.peakSecond = bestSecond;
 }
 
     private void DrawDot(float u, float v, Color color, int radius)

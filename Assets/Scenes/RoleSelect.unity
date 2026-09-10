@@ -460,8 +460,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4290624896
-  m_fontColor: {r: 0.5019608, g: 0.7411765, b: 0.7411765, a: 1}
+    rgba: 4289124723
+  m_fontColor: {r: 0.45, g: 0.85, b: 0.65, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -567,8 +567,7 @@ MonoBehaviour:
   traineeGroup: {fileID: 1507608054}
   disabledTraineeAlpha: 0.4
   noReferenceMessage: No reference recorded yet - a specialist must record one first.
-  specialistReRecordMessage: Re-record the reference - this replaces the current
-    benchmark
+  specialistReRecordMessage: Record the reference - this replaces the current benchmark.
 --- !u!4 &33182786
 Transform:
   m_ObjectHideFlags: 0
@@ -1220,7 +1219,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.3019608, g: 0.9490196, b: 0.9490196, a: 1}
+  m_Color: {r: 0, g: 1, b: 0.56078434, a: 1}
   m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -1342,7 +1341,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.3019608, g: 0.9490196, b: 0.9490196, a: 1}
+  m_Color: {r: 0, g: 1, b: 0.56078434, a: 1}
   m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -1532,7 +1531,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -4.5, y: -14.7}
+  m_AnchoredPosition: {x: -4, y: -11}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1229590958
@@ -2021,7 +2020,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.05, g: 0.16, b: 0.17, a: 1}
+  m_Color: {r: 0.03, g: 0.14, b: 0.09, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -2125,8 +2124,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294111821
-  m_fontColor: {r: 0.3019608, g: 0.9490196, b: 0.9490196, a: 1}
+    rgba: 4287627008
+  m_fontColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:

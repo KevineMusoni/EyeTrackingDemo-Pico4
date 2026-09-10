@@ -2434,7 +2434,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -3052,7 +3052,8 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 1
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  renderReticle: 0
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 4
   validUMin: 0.15
@@ -3170,7 +3171,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -5514,7 +5515,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -5712,7 +5713,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -6347,7 +6348,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -6380,7 +6381,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0
@@ -10114,7 +10115,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   layerDepth: 2
   textureSize: 64
-  dotColor: {r: 0, g: 1, b: 1, a: 1}
+  dotColor: {r: 0, g: 1, b: 0.56078434, a: 1}
 --- !u!114 &1897184428
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10731,7 +10732,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
-  reticleColor: {r: 0, g: 1, b: 1, a: 1}
+  reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
   validUMin: 0

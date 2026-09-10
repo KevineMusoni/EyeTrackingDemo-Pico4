@@ -12,7 +12,7 @@ public class GazeReticleOverLayer : MonoBehaviour
     [SerializeField] private int layerDepth = -1; //Must be higher than the ReticledemoVideoScreen's own PXR_Overlay Depth (Currently 1)
 
     [SerializeField] private int textureSize = 64;
-    [SerializeField] private Color dotColor = Color.cyan;
+    [SerializeField] private Color dotColor = new Color(0f, 1f, 0.56078434f); // theme green #00FF8F
 
     private PXR_OverLay overlay;
 

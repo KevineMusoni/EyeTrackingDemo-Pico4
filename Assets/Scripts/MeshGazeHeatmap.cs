@@ -38,7 +38,12 @@ public class MeshGazeHeatmap : MonoBehaviour
     // GazeReviewScreen, ReportScreen all want accumulation) - only relevant for a screen whose
     // whole purpose is a live gaze indicator (ReticleDemoVideoScreen).
     [SerializeField] private bool instantReticleMode = false;
-    [SerializeField] private Color reticleColor = Color.cyan;
+    // Recording (recordSamples) is independent of this. Set false to record gaze on this screen
+    // while drawing nothing at all - no reticle, no trail, no accumulating heat. Used by the live
+    // ReticleDemoVideoScreen session, whose trail is rendered later in the Visualisation scene
+    // from the saved JSON instead. Default true so every other screen is unaffected.
+    [SerializeField] private bool renderReticle = true;
+    [SerializeField] private Color reticleColor = new Color(0f, 1f, 0.56078434f); // theme green #00FF8F
     [SerializeField] private float tailDurationSeconds = 0.5f; //how far in time the trail reaches. this buffer fills up fast - start short and lengthen only if the trail looks too sparse on-device.
     [SerializeField] private int tailMinRadiusPixels = 2; // Floor on the oldest (about-to-be-evicted) point's radius. Without this, Lerp'ing radius down
     // to 0 would make the tail's far end shrink to nothing before RemoveAll() actually drops it -a dead invisible stretch at the end instead of a smooth taper.
@@ -293,6 +298,10 @@ public class MeshGazeHeatmap : MonoBehaviour
             recording.samples.Add(new GazeSample { u = uv.x, v = uv.y, radius = radius, time = Time.time - startTime });
         }
 
+        // Record-only screen: the sample is saved above, but nothing is drawn - skips both the
+        // instantReticleMode tail path and the PaintAt accumulation path below.
+        if (!renderReticle) return;
+
         if (instantReticleMode)
         {
             // Unchanged from the original single-dot code - Update() below still relies on these to
@@ -371,7 +380,7 @@ public class MeshGazeHeatmap : MonoBehaviour
 
     private void Update()
     {
-        if (!instantReticleMode) return;
+        if (!instantReticleMode || !renderReticle) return;
 
         // StampAt() only runs while this object IS the current gaze target - if it ran this
         // frame (or the frame just before, covering ordering ambiguity between

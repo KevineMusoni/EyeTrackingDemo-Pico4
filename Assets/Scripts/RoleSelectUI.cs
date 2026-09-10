@@ -55,6 +55,8 @@ public class RoleSelectUI : MonoBehaviour
         BeginLoad(specialistBorder);
     }
 
+    // enabled only when specalist json file is available
+
     public void SelectTrainee()
     {
         if (!referenceExists) return;

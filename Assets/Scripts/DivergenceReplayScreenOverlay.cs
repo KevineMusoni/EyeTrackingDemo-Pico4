@@ -60,7 +60,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
-
+    [SerializeField] private TMP_Text phaseReadoutText;
 
 
     [Serializable]
@@ -154,6 +154,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         {
             FindKeyAreaAndDwellTimes(phase);
         }
+
+        // Show phase 1's result before playback starts, rather than a blank line.
+        UpdatePhaseReadout(0f);
 
         if (replayProgressSlider != null)
         {
@@ -301,6 +304,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             replayTimeText.text = $"{FormatTime(elapsed)} / {FormatTime(videoLengthSeconds)}";
         }
 
+        UpdatePhaseReadout(elapsed);
+
 
         if (elapsed > videoLengthSeconds)
         {
@@ -365,6 +370,52 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             dotsPixels[i] = Color.clear;
         }
     }
+
+    // Writes the "which phase, and how did the trainee do in it" block. Called every frame from
+    // Update() and once from Start() so it's populated before playback begins.
+    private void UpdatePhaseReadout(float elapsed){
+        if (phaseReadoutText == null || videoPhases == null || videoPhases.Length == 0) return;
+
+        int idx = -1;
+        for (int i = 0; i < videoPhases.Length; i++)
+        {
+            if (elapsed >= videoPhases[i].startSecond && elapsed <= videoPhases[i].endSecond)
+            {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) idx = videoPhases.Length - 1; // past the end - hold on the last phase
+
+        VideoPhase p = videoPhases[idx];
+
+        string header = $"<b>{p.name}</b>   <color=#FFFFFFAA>Phase {idx + 1} of {videoPhases.Length}</color>";
+
+        string detail;
+        if (!p.hasKeyArea)
+        {
+            detail = "<color=#FFFFFF99>no clear key area this phase</color>";
+        }
+        else
+        {
+            detail = $"<color=#00FF8F>Expert {p.specialistDwellSeconds:0.0}s</color>" +
+                    $"     <color=#D9A600>You {p.traineeDwellSeconds:0.0}s</color>" +
+                    $"     {PhaseVerdict(p)}";
+        }
+
+        phaseReadoutText.text = header + "\n" + detail;
+    }
+
+    // Same classification the slider scorecard uses, as a coloured word.
+    private string PhaseVerdict(VideoPhase p)
+    {
+        if (p.specialistDwellSeconds > 0f && p.traineeDwellSeconds >= p.specialistDwellSeconds)
+            return "<color=#33CC4D>Matched</color>";
+        if (p.traineeDwellSeconds <= 0f)
+            return "<color=#E62626>Missed</color>";
+        return "<color=#FF8C00>Partial</color>";
+    }
+
 
     // Nearest-sample lookup rather than an exact time match - real samples never land exactly on
     // a frame boundary. Re-sorts the whole list every call, which is wasteful at ~72 samples/sec

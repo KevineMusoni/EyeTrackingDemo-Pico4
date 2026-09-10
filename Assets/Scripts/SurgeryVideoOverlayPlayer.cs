@@ -16,6 +16,10 @@ using Unity.XR.PXR;
 [RequireComponent(typeof(PXR_OverLay))]
 public class SurgeryVideoOverlayPlayer : MonoBehaviour
 {
+    [Header("Flat / 2D mode")]
+    [Tooltip("Show the video mono, no stereo depth. Source is side-by-side stereo, so this also " +
+         "crops to the left-eye half and feeds it to both eyes.")]
+    [SerializeField] private bool flatMono = false;
     [SerializeField] private string videoFileName = "LAR_Surgery_3D_Robot_SEALG_v01.mp4";
     // Fired once, right when the Android Surface is ready and playback is actually issued -
     // the closest thing to a real "video started" signal this plugin exposes (there's no
@@ -86,10 +90,24 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         AndroidJNIHelper.debug = true;
 #endif
         overlay = GetComponent<PXR_OverLay>();
+
+        if (flatMono)
+        {
+            // Single = no L/R split, the compositor samples one image for both eyes. Then crop that
+            // sample to the left half of the (still side-by-side) surface so both eyes see one
+            // undistorted eye's view = flat, no depth.
+            overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.Single;
+            overlay.useImageRect  = true;
+            overlay.srcRectLeft   = new Rect(0f, 0f, 0.5f, 1f);
+            overlay.srcRectRight  = new Rect(0f, 0f, 0.5f, 1f);
+        }
+        else
+        {
+            overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.LeftRight;
+        }
         overlay.overlayShape = overlayShape;
         overlay.radius = cylinderRadius;
         overlay.isExternalAndroidSurface = true;
-        overlay.externalAndroidSurface3DType = PXR_OverLay.Surface3DType.LeftRight;
         overlay.externalAndroidSurfaceObjectCreated += OnSurfaceCreated;
     }
 

@@ -248,11 +248,51 @@ Cloned `picoxr/EyeTrackingDemo`. Fixes to get it running:
   per-frame - not confirmed). Reverted to `512`/`12`/`4`/`20`.
 - **Confirmed working on-device** at that baseline - stable, continuous threads, no blob artifacts.
 
+## Per-phase key-area + dwell-time scorecard (`DivergenceReplayScreenOverlay.cs`, `Visualisation.unity`)
+- **Goal**: instead of one divergence number for the whole 20s clip, split the video into 3 logical
+  phases (Intro 0-6s, Applying Seal 6-14s, Outro 14-20s - editable in the Inspector as
+  `videoPhases`) and tell the trainee, per phase, whether they looked where the specialist looked.
+- **Metric** (per phase, computed once in `Start()` → `FindKeyAreaAndDwellTimes()`):
+  1. **Key area** = where the specialist's attention concentrated most in that phase. Grid-bucket
+     the specialist's samples in the phase window into a 20x20 UV grid (`keyAreaGridResolution`),
+     take the densest cell, average the sample positions in it → one UV point.
+  2. **Dwell time** = for each person, count their samples in the phase window within `keyAreaRadius`
+     (0.039 UV ≈ 20px/512, borrowed from `ComparisonLoader.replayRadiusPixels`) of that point, ×
+     a FIXED `secondsPerSample` (1/72, this headset's ~rate). Fixed on purpose - deriving it
+     per-person as `phaseDuration/theirSampleCount` let missing data (blinks, tracking gaps)
+     silently inflate a barely-tracked person to "dwelled the whole phase."
+- **Two views of the same comparison**:
+  - **On-video rings** (`Update()`): while a phase plays, a red ring at its key area. Outer ring =
+    specialist (`peakRingRadiusPixels`); inner ring = trainee, radius scaled by
+    `traineeDwell/specialistDwell` clamped to 1. Small/absent inner ring = trainee missed it.
+  - **Slider scorecard** (`Start()`): each phase gets a coloured segment on the replay slider over
+    its time range, with a `markerGapPixels` gap between segments. Colour = `markerPassColor`
+    (trainee dwell ≥ specialist), `markerPartialColor` (looked there, less), `markerMissedColor`
+    (never looked near it), at `markerAlpha` so the fill reads through. Replaced the old behaviour
+    where all 3 markers spanned their full phase width in solid red → the whole slider looked like
+    one red bar (the reported bug).
+- **Bugs fixed this pass**:
+  - Markers were `RaycastTarget: 1` → intercepted slider drags across their whole width. Now 0.
+  - Segment widths were measured off the slider's own RectTransform (450px) but markers live under
+    the narrower inset "Fill Area" (~430px) → last segment overflowed the track. Now
+    `Canvas.ForceUpdateCanvases()` then measure the marker parent directly.
+  - A phase with no specialist data (`!hasKeyArea`) left its marker at the scene-default 100px red
+    block. Now `SetActive(false)`.
+- **Never run on-device** - the whole key-area path has only been reasoned through, not tested with
+  real specialist + trainee recordings. See `## Later / blocked` for what's still open.
+
 ## Known but unfixed
 - SDK bug: `PXR_BuildProcessor.cs` writes a manifest value as the literal string `"false/true"`
   instead of a real bool. Not a blocker.
 - Dead code pending cleanup: `GazeReticle`, `GazeReticleOverLayer.cs`, `EyeTrackingManager.cs`'s
   now-unused `GazeReticle`/`ReticleTargetObject` fields.
+- `DivergenceReplayScreenOverlay`: `FindKeyAreaAndDwellTimes()` iterates `specialistSamples` with
+  no null guard - if `specialist_reference.json` is missing, `Start()` throws mid-init (trainee
+  side is guarded, specialist side isn't). `FindSampleNearTime()` is dead (superseded by
+  `FindInterpolatedSample()`). The `videoPlayer == null` branch in `Start()` starts replay timing
+  that the first `Update()` then NREs on.
+- Temp debug logs still in: `DivergenceReplayScreenOverlay.SeekToSecond()` and
+  `CustomSliderDragHandler.DoSeek()` both log on every call ("confirms this method actually runs").
 
 ## Repo
 - Fork: `github.com/KevineMusoni/EyeTrackingDemo-Pico4`. `origin` = fork, `upstream` =
@@ -270,3 +310,22 @@ Cloned `picoxr/EyeTrackingDemo`. Fixes to get it running:
 - [ ] Structure list for per-structure dwell time - needs clinical contact's input.
 - [ ] Expert recording: captured once and reused, or recaptured per trainee?
 - [ ] Remove dead Attempt-1 reticle code.
+
+### Per-phase scorecard - remaining
+- [ ] First on-device test of the key-area / dwell-time path with real specialist + trainee
+      recordings (never run).
+- [ ] Tune `keyAreaRadius` (0.039) against that recording - if it's wrong, every phase reads
+      all-pass or all-missed. Also log actual eye-tracking sample intervals once to confirm the
+      `secondsPerSample` 1/72 assumption.
+- [ ] Per-phase text readout on `DivergenceReplayScreen` ("Specialist Ns | You Ns (missed Ns)" /
+      "Pass" / "Completely missed") - new TMP scene objects wired to the phase loop; the rings +
+      colours currently show relative performance only, never the numbers.
+- [ ] On-screen legend for the slider scorecard's pass / partial / missed colours.
+- [ ] Confidence floor for the per-phase key area (min fraction of the phase's samples landing in
+      the winning grid cell) before `hasKeyArea` is set - an evenly-swept phase currently yields a
+      near-arbitrary key area presented with full authority.
+- [ ] Consider a soft falloff in `ComputeDwellSeconds()` instead of the hard `keyAreaRadius`
+      cutoff - would make dwell scores less sensitive to that one constant.
+- [ ] Remove the two temp debug logs (`SeekToSecond`, `DoSeek`) once scrubbing is confirmed.
+- [ ] Null-guard `FindKeyAreaAndDwellTimes()` / drop the dead `FindSampleNearTime()` / fix the
+      `videoPlayer == null` path (see `## Known but unfixed`).

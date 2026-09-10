@@ -1051,7 +1051,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
   m_Color: {r: 0.9433962, g: 0.11124954, b: 0.11124954, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -1123,11 +1123,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
   m_Color: {r: 0.9433962, g: 0.11124954, b: 0.11124954, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -1199,11 +1199,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
   m_Color: {r: 0.9433962, g: 0.11124954, b: 0.11124954, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -1260,7 +1260,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   videoFileName: LAR_Surgery_test_20s_seekable.mp4
-  playbackSpeed: 0.5
+  playbackSpeed: 1
   overlayShape: 1
   cylinderRadius: 0
 --- !u!114 &743741209
@@ -3263,16 +3263,34 @@ MonoBehaviour:
   tailDurationSeconds: 1
   tailPointCount: 8
   tailMinRadiusPixels: 4
-  peakHighlightColor: {r: 1, g: 0, b: 0, a: 1}
   peakRingRadiusPixels: 20
+  markerPassColor: {r: 0.2, g: 0.8, b: 0.3, a: 1}
+  markerPartialColor: {r: 1, g: 0.55, b: 0, a: 1}
+  markerMissedColor: {r: 0.9, g: 0.15, b: 0.15, a: 1}
+  markerAlpha: 0.5
+  markerHeightPixels: 8
+  markerGapPixels: 6
   videoLengthSeconds: 20
   videoPlayer: {fileID: 743741208}
   replayProgressSlider: {fileID: 1131576703}
   replayTimeText: {fileID: 232511061}
+  videoPhases:
+  - name: Intro
+    startSecond: 0
+    endSecond: 6
+  - name: Applying Seal
+    startSecond: 6
+    endSecond: 14
+  - name: Outro
+    startSecond: 14
+    endSecond: 20
   phaseDivergenceMarkers:
   - {fileID: 476521301}
   - {fileID: 476521401}
   - {fileID: 476521501}
+  keyAreaRadius: 0.039
+  keyAreaGridResolution: 20
+  secondsPerSample: 0.013888889
 --- !u!1 &1885118896
 GameObject:
   m_ObjectHideFlags: 0

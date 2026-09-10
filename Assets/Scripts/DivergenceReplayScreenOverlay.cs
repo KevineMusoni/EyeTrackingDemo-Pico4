@@ -32,12 +32,24 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
     [SerializeField] private int tailMinRadiusPixels = 4; //size of the oldest (tail-end) dot
 
-    // The key area (per phase) gets a ring around both dots instead of/alongside the plain fill -
-    // distinct from the dot colors so it reads as "notable spot" rather than a third data series.
-    // Red matches ComparisonLoader's own peakDivergenceColor (its dot marker on ReportScreen's
-    // combined heatmap) and the slider's phase markers - same "flagged" color across all screens.
-    [SerializeField] private Color peakHighlightColor = Color.red;
+    // The key area (per phase) gets a pair of concentric rings: an outer one for the specialist
+    // and an inner one for the trainee. Each ring reuses that person's own dot colour
+    // (specialistDotColor / traineeDotColor) so it reads as "this is where <that person> should
+    // be / is" - no separate colour to learn, the ring just echoes the dot it belongs to.
     [SerializeField] private int peakRingRadiusPixels = 20;
+
+    // Each phase's slider segment is coloured as a scorecard: did the trainee match the
+    // specialist's dwell at that phase's key area? Matched or beat it -> pass; looked there
+    // but less -> partial; never looked near it -> missed. Semi-transparent (markerAlpha) so
+    // the slider fill still reads through underneath. markerGapPixels leaves a gap between
+    // segments so the three read as separate blocks, not one continuous bar (the phases tile
+    // the whole 0-videoLength timeline with no gaps of their own).
+    [SerializeField] private Color markerPassColor = new Color(0.2f, 0.8f, 0.3f);
+    [SerializeField] private Color markerPartialColor = new Color(0.9f, 0.65f, 0.1f);
+    [SerializeField] private Color markerMissedColor = new Color(0.9f, 0.15f, 0.15f);
+    [SerializeField] private float markerAlpha = 0.5f;
+    [SerializeField] private float markerHeightPixels = 8f;
+    [SerializeField] private float markerGapPixels = 6f;
 
     // The trimmed clip's length - also how far Update() counts before stopping.
     [SerializeField] private int videoLengthSeconds = 20;
@@ -151,19 +163,68 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         if (replayProgressSlider != null && phaseDivergenceMarkers != null)
         {
+            // Layout hasn't run yet this frame - force it so the RectTransform widths below
+            // are the resolved on-screen sizes, not the serialized design-time values (the
+            // Fill Area stretches to its parent, so its rect.width is meaningless until a
+            // layout pass fills it in).
+            Canvas.ForceUpdateCanvases();
+
+            // Map the phase timeline onto the slider's Fill Area, not the slider bounds: the
+            // markers are parented there and it's inset from the slider edges, so measuring
+            // the slider instead would scale every segment slightly too wide and overflow the
+            // last one past the track.
             float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
+            RectTransform markerParent = phaseDivergenceMarkers.Length > 0 && phaseDivergenceMarkers[0] != null
+                ? phaseDivergenceMarkers[0].parent as RectTransform
+                : null;
+            if (markerParent != null)
+            {
+                barWidth = markerParent.rect.width;
+            }
             float pixelsPerSecond = barWidth / videoLengthSeconds;
 
             for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
             {
                 VideoPhase phase = videoPhases[i];
                 RectTransform marker = phaseDivergenceMarkers[i];
-                if (marker == null || !phase.hasKeyArea) continue;
+                if (marker == null) continue;
 
-                float startX = phase.startSecond * pixelsPerSecond;
-                float width = (phase.endSecond - phase.startSecond) * pixelsPerSecond;
+                // A phase with no specialist data has no key area to score against - hide
+                // its segment rather than leaving it at its scene-default size and colour.
+                if (!phase.hasKeyArea)
+                {
+                    marker.gameObject.SetActive(false);
+                    continue;
+                }
+                marker.gameObject.SetActive(true);
+
+                // Span the phase, inset by half the gap on each side so neighbouring
+                // segments don't touch. Clamp the right edge to barWidth: the phases tile
+                // the full 0-videoLength range, so rounding can otherwise push the last
+                // segment a pixel or two past the end of the bar.
+                float startX = phase.startSecond * pixelsPerSecond + markerGapPixels * 0.5f;
+                float endX = Mathf.Min(phase.endSecond * pixelsPerSecond - markerGapPixels * 0.5f, barWidth);
+                float width = Mathf.Max(0f, endX - startX);
                 marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
-                marker.sizeDelta = new Vector2(width, marker.sizeDelta.y);
+                marker.sizeDelta = new Vector2(width, markerHeightPixels);
+
+                // The colour is the feedback. Pass needs the specialist to actually have a
+                // dwell time to match (specialistDwellSeconds > 0); a degenerate phase where
+                // even the specialist scored zero falls through to missed/partial.
+                Image markerImage = marker.GetComponent<Image>();
+                if (markerImage != null)
+                {
+                    Color c;
+                    if (phase.specialistDwellSeconds > 0f && phase.traineeDwellSeconds >= phase.specialistDwellSeconds)
+                        c = markerPassColor;
+                    else if (phase.traineeDwellSeconds <= 0f)
+                        c = markerMissedColor;
+                    else
+                        c = markerPartialColor;
+
+                    c.a = markerAlpha;
+                    markerImage.color = c;
+                }
             }
         }
 
@@ -256,15 +317,16 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         DrawTail(traineeSamples, elapsed, traineeDotColor);
 
         // Show whichever phase is currently playing's key area - for its ENTIRE duration, not one
-        // instant. Outer ring is always the specialist's full size (the key area is defined as
-        // their peak); inner ring is the trainee's, scaled by how much of the specialist's dwell
-        // time they matched - clamped to 1 so a trainee who matched or exceeded the specialist
-        // doesn't draw an inner ring bigger than the outer one.
+        // instant. Outer ring (specialist colour) is always full size - the key area is defined as
+        // the specialist's peak. Inner ring (trainee colour) is scaled by how much of the
+        // specialist's dwell time the trainee matched, clamped to 1 so a trainee who matched or
+        // exceeded the specialist doesn't draw an inner ring bigger than the outer one. Matching
+        // ring colour to dot colour means the trainee can tell at a glance which ring is theirs.
         foreach (VideoPhase phase in videoPhases)
         {
             if (!phase.hasKeyArea || elapsed < phase.startSecond || elapsed > phase.endSecond) continue;
 
-            DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, peakHighlightColor, peakRingRadiusPixels);
+            DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, specialistDotColor, peakRingRadiusPixels);
 
             if (phase.specialistDwellSeconds > 0f)
             {
@@ -272,7 +334,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
                 int innerRadius = Mathf.RoundToInt(peakRingRadiusPixels * ratio);
                 if (innerRadius > 0)
                 {
-                    DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, peakHighlightColor, innerRadius);
+                    DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, traineeDotColor, innerRadius);
                 }
             }
             break;

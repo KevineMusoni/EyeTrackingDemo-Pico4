@@ -11,8 +11,9 @@ using UnityEngine.UI;
 // from the trainee's original live session on SurgeryVideoScreen). Unlike ComparisonLoader/
 // GazeReviewLoader, which paint a completed session into a static texture, this animates frame by
 // frame in sync with THIS screen's own video, so a viewer can see not just where each person
-// looked overall but how their attention moved together (or apart) moment to moment. Also flags
-// the one second where their gaze positions were furthest apart with a highlight ring.
+// looked overall but how their attention moved together (or apart) moment to moment. Also flags,
+// per phase, the "key area" - wherever the specialist's attention concentrated most - and how
+// long each person actually spent looking near that same spot.
 public class DivergenceReplayScreenOverlay : MonoBehaviour
 {
     // The compositor layer on this same object - fed the dots texture every frame once replaying.
@@ -31,11 +32,10 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
     [SerializeField] private int tailMinRadiusPixels = 4; //size of the oldest (tail-end) dot
 
-    // The one second where their gaze positions differed most gets a ring around both dots
-    // instead of/alongside the plain fill - distinct from the dot colors so it reads as "notable
-    // moment" rather than a third data series. Red matches ComparisonLoader's own
-    // peakDivergenceColor (its dot marker on ReportScreen's combined heatmap) and the slider's
-    // PeakDivergenceMarker segment - same "flagged moment" color across all three screens.
+    // The key area (per phase) gets a ring around both dots instead of/alongside the plain fill -
+    // distinct from the dot colors so it reads as "notable spot" rather than a third data series.
+    // Red matches ComparisonLoader's own peakDivergenceColor (its dot marker on ReportScreen's
+    // combined heatmap) and the slider's phase markers - same "flagged" color across all screens.
     [SerializeField] private Color peakHighlightColor = Color.red;
     [SerializeField] private int peakRingRadiusPixels = 20;
 
@@ -43,12 +43,11 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private int videoLengthSeconds = 20;
 
     // DivergenceReplayScreen's own SurgeryVideoOverlayPlayer - the dot timer waits for its
-    // PlaybackStarted event instead of starting from this script's own Start(), 
+    // PlaybackStarted event instead of starting from this script's own Start(),
 
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
-    [SerializeField] private RectTransform peakDivergenceMarker;
 
 
 
@@ -81,8 +80,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         public float startSecond;
         public float endSecond;
 
-        // Filled in once by FindKeyAreaAndDwellTimes() in Start() - not serialized, computed fresh
-        // every load from the actual recorded samples.
+        // Filled in once by FindKeyAreaAndDwellTimes() in Start() - not serialized, computed
+        // fresh every load from the actual recorded samples.
         [NonSerialized] public bool hasKeyArea;
         [NonSerialized] public Vector2 keyAreaUV;
         [NonSerialized] public float specialistDwellSeconds;
@@ -102,6 +101,24 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // used - assign 3 slider-marker RectTransforms here, in the same order as videoPhases above.
     [SerializeField] private RectTransform[] phaseDivergenceMarkers;
 
+    // How close a sample needs to be to the key area to count as "looking at it," in UV space.
+    // Matches ComparisonLoader.replayRadiusPixels (20px) on a 512px texture, converted to UV:
+    // 20/512 ≈ 0.039 - reusing the same already-proven radius, not a new guess.
+    [SerializeField] private float keyAreaRadius = 0.039f;
+
+    // How finely to bucket the specialist's samples when searching for their key area - a 20x20
+    // grid over the whole 0-1 UV space. Coarser than the pixel texture (deliberately) since this
+    // only needs to find roughly where attention concentrated, not a pixel-precise location.
+    [SerializeField] private int keyAreaGridResolution = 20;
+
+    // Fixed conversion from "matched sample count" to seconds, based on this headset's typical
+    // ~72Hz sampling rate - NOT derived per-person from phaseDuration/totalCount. Deriving it per
+    // person let missing data (blinks, tracking gaps, rejected samples) silently inflate that
+    // person's dwell score: fewer total samples meant a bigger seconds-per-sample multiplier, so
+    // someone barely tracked could still show up as "dwelled the whole phase." A fixed rate means
+    // less data just produces a smaller, honestly-lower number instead.
+    [SerializeField] private float secondsPerSample = 1f / 72f;
+
     // No more "wait for the main video, stay hidden until ready" dance - that only existed to
     // survive coexisting mid-session with the live surgery video in EyeTrackingDemo. This screen
     // now lives in its own scene, loaded only after the trainee's session (and its recording -
@@ -118,11 +135,13 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         specialistSamples?.Sort((a,b) => a.time.CompareTo(b.time));
         traineeSamples?.Sort((a,b) => a.time.CompareTo(b.time));
 
-        // Requires both sides loaded, this must run after both lists above are assigned -
-        // compares actual gaze POSITION per second, matching what the two dots on screen show.
-        // peakDivergenceSecond = FindPeakDivergenceSecond();
-
-
+        // Requires both sides loaded, this must run after both lists above are assigned. One call
+        // per phase, so every phase gets its own key area and dwell-time comparison, instead of
+        // one result for the whole video.
+        foreach (VideoPhase phase in videoPhases)
+        {
+            FindKeyAreaAndDwellTimes(phase);
+        }
 
         if (replayProgressSlider != null)
         {
@@ -130,26 +149,33 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             replayProgressSlider.maxValue = videoLengthSeconds;
         }
 
-        if (peakDivergenceMarker != null && peakDivergenceSecond >= 0 && replayProgressSlider != null){
-            // Assumes the marker's RectTransform is anchored to the left edge of the same bar the slider fill, with its pivot at (0,0.5)
-
+        if (replayProgressSlider != null && phaseDivergenceMarkers != null)
+        {
             float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
-            float secondWidth = barWidth / videoLengthSeconds;
-            float startX = peakDivergenceSecond * secondWidth;
+            float pixelsPerSecond = barWidth / videoLengthSeconds;
 
-            peakDivergenceMarker.anchoredPosition = new Vector2(startX, peakDivergenceMarker.anchoredPosition.y);
-            peakDivergenceMarker.sizeDelta = new Vector2(secondWidth, peakDivergenceMarker.sizeDelta.y);
-    }
+            for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
+            {
+                VideoPhase phase = videoPhases[i];
+                RectTransform marker = phaseDivergenceMarkers[i];
+                if (marker == null || !phase.hasKeyArea) continue;
 
-        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, peakSecond={peakDivergenceSecond}.");
+                float startX = phase.startSecond * pixelsPerSecond;
+                float width = (phase.endSecond - phase.startSecond) * pixelsPerSecond;
+                marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
+                marker.sizeDelta = new Vector2(width, marker.sizeDelta.y);
+            }
+        }
+
+        Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, phases=[{string.Join(", ", videoPhases.Select(p => $"{p.name}: spec={p.specialistDwellSeconds:F1}s trainee={p.traineeDwellSeconds:F1}s"))}].");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
         dotsPixels = new Color[textureSize * textureSize];
 
         if (videoPlayer != null)
         {
-            // plays immediately if the video already started  
-            
+            // plays immediately if the video already started
+
             videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
@@ -229,12 +255,27 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         DrawTail(specialistSamples, elapsed, specialistDotColor);
         DrawTail(traineeSamples, elapsed, traineeDotColor);
 
-        // apply the ring to the highest peak point - Mathf.FloorToInt matches
-        // the same whole-second bucketing FindPeakDivergenceSecond used to find it.
-        if (peakDivergenceSecond >= 0 && Mathf.FloorToInt(elapsed) == peakDivergenceSecond)
+        // Show whichever phase is currently playing's key area - for its ENTIRE duration, not one
+        // instant. Outer ring is always the specialist's full size (the key area is defined as
+        // their peak); inner ring is the trainee's, scaled by how much of the specialist's dwell
+        // time they matched - clamped to 1 so a trainee who matched or exceeded the specialist
+        // doesn't draw an inner ring bigger than the outer one.
+        foreach (VideoPhase phase in videoPhases)
         {
-            DrawRing(peakSpecialistUV.x, peakSpecialistUV.y, peakHighlightColor);
-            DrawRing(peakTraineeUV.x, peakTraineeUV.y, peakHighlightColor);
+            if (!phase.hasKeyArea || elapsed < phase.startSecond || elapsed > phase.endSecond) continue;
+
+            DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, peakHighlightColor, peakRingRadiusPixels);
+
+            if (phase.specialistDwellSeconds > 0f)
+            {
+                float ratio = Mathf.Clamp01(phase.traineeDwellSeconds / phase.specialistDwellSeconds);
+                int innerRadius = Mathf.RoundToInt(peakRingRadiusPixels * ratio);
+                if (innerRadius > 0)
+                {
+                    DrawRing(phase.keyAreaUV.x, phase.keyAreaUV.y, peakHighlightColor, innerRadius);
+                }
+            }
+            break;
         }
 
         dotsTexture.SetPixels(dotsPixels);
@@ -251,7 +292,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         int totalSeconds = Mathf.FloorToInt (seconds);
         int minutes = totalSeconds / 60;
         int secs = totalSeconds %60;
-      
+
         return $"{minutes}:{secs:D2}";
     }
 
@@ -317,65 +358,70 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     }
 
-    // Calculate the difference per second where the specialist's and trainee's gaze positions were furthest
-    // apart (both must have a sample near that second - can't compare a gap against a value).
-    // private int FindPeakDivergenceSecond()
-    // {
-    //     // they both start at -1 because nothing is found yet, distance is always >= 0
-    //     int bestSecond = -1; // method value to return global maximum - highest peak
-    //     float bestDistance = -1f; // method to calculate difference between the trainee and specialist dots
-
-    //     for (int second = 0; second < videoLengthSeconds; second++)
-    //     {
-    //         GazeSample specialistAt = FindSampleNearTime(specialistSamples, second);
-    //         GazeSample traineeAt = FindSampleNearTime(traineeSamples, second);
-    //         if (specialistAt == null || traineeAt == null) continue;
-
-    //         float distance = Vector2.Distance(new Vector2(specialistAt.u, specialistAt.v), new Vector2(traineeAt.u, traineeAt.v));
-    //         if (distance > bestDistance)
-    //         {
-    //             bestDistance = distance;
-    //             bestSecond = second;
-
-    //             // cache the exact positions that produced this distance - Update() draws the ring here for the rest of the method's lifetime, not at whatever gaze position is live when the flagged second is actually playing back. 
-    //             peakSpecialistUV = new Vector2(specialistAt.u, specialistAt.v);
-    //             peakTraineeUV = new Vector2(traineeAt.u, traineeAt.v);
-
-    //         }
-    //     }
-
-    //     return bestSecond;
-    // }
-
-    // Same distance-based comparison as before, restricted to one phase's own time range - called
-// once per phase instead of once for the whole video, so every phase gets its own flagged
-// moment instead of whichever single spike is biggest across all 20 seconds dominating the rest.
-private void FindPeakDivergenceInRange(VideoPhase phase)
-{
-    int bestSecond = -1;
-    float bestDistance = -1f;
-
-    int startWhole = Mathf.FloorToInt(phase.startSecond);
-    int endWhole = Mathf.CeilToInt(phase.endSecond);
-
-    for (int second = startWhole; second < endWhole; second++)
+    // Finds where the specialist's attention concentrated most within this phase (their "key
+    // area"), then measures how long each person actually spent looking near that same spot.
+    // Two-step process:
+    //   1. Bucket the specialist's samples into a coarse grid, find the densest cell - that's
+    //      where they focused. Cheaper than painting into a full pixel texture (like
+    //      ComparisonLoader does) since this only runs once per phase over a few hundred samples,
+    //      not scanning a whole 512x512 buffer - same "accumulate then find the peak" shape,
+    //      lighter implementation.
+    //   2. Count each person's samples within keyAreaRadius of that point, convert to seconds.
+    private void FindKeyAreaAndDwellTimes(VideoPhase phase)
     {
-        GazeSample specialistAt = FindSampleNearTime(specialistSamples, second);
-        GazeSample traineeAt = FindSampleNearTime(traineeSamples, second);
-        if (specialistAt == null || traineeAt == null) continue;
+        var cellCounts = new Dictionary<(int, int), int>();
+        var cellPositionSums = new Dictionary<(int, int), Vector2>();
 
-        float distance = Vector2.Distance(new Vector2(specialistAt.u, specialistAt.v), new Vector2(traineeAt.u, traineeAt.v));
-        if (distance > bestDistance)
+        foreach (GazeSample sample in specialistSamples)
         {
-            bestDistance = distance;
-            bestSecond = second;
-            phase.peakSpecialistUV = new Vector2(specialistAt.u, specialistAt.v);
-            phase.peakTraineeUV = new Vector2(traineeAt.u, traineeAt.v);
+            if (sample.time < phase.startSecond || sample.time > phase.endSecond) continue;
+
+            int cellX = Mathf.Clamp(Mathf.FloorToInt(sample.u * keyAreaGridResolution), 0, keyAreaGridResolution - 1);
+            int cellY = Mathf.Clamp(Mathf.FloorToInt(sample.v * keyAreaGridResolution), 0, keyAreaGridResolution - 1);
+            var cell = (cellX, cellY);
+
+            cellCounts[cell] = cellCounts.TryGetValue(cell, out int count) ? count + 1 : 1;
+            cellPositionSums[cell] = cellPositionSums.TryGetValue(cell, out Vector2 sum)
+                ? sum + new Vector2(sample.u, sample.v)
+                : new Vector2(sample.u, sample.v);
         }
+
+        if (cellCounts.Count == 0)
+        {
+            phase.hasKeyArea = false;
+            return;
+        }
+
+        var winningCell = cellCounts.OrderByDescending(kv => kv.Value).First();
+        phase.keyAreaUV = cellPositionSums[winningCell.Key] / winningCell.Value;
+        phase.hasKeyArea = true;
+
+        phase.specialistDwellSeconds = ComputeDwellSeconds(specialistSamples, phase);
+        phase.traineeDwellSeconds = ComputeDwellSeconds(traineeSamples, phase);
     }
 
-    phase.peakSecond = bestSecond;
-}
+    // Counts how many of this person's samples (within the phase's time range) fall within
+    // keyAreaRadius of phase.keyAreaUV, then converts that count to seconds using the FIXED
+    // secondsPerSample rate (not derived from this person's own sample count - see that field's
+    // comment for why deriving it per-person would let missing data inflate the result).
+    private float ComputeDwellSeconds(List<GazeSample> samples, VideoPhase phase)
+    {
+        if (samples == null || samples.Count == 0) return 0f;
+
+        int matchCount = 0;
+
+        foreach (GazeSample sample in samples)
+        {
+            if (sample.time < phase.startSecond || sample.time > phase.endSecond) continue;
+
+            if (Vector2.Distance(new Vector2(sample.u, sample.v), phase.keyAreaUV) <= keyAreaRadius)
+            {
+                matchCount++;
+            }
+        }
+
+        return matchCount * secondsPerSample;
+    }
 
     private void DrawDot(float u, float v, Color color, int radius)
     {
@@ -432,7 +478,7 @@ private void FindPeakDivergenceInRange(VideoPhase phase)
                 DrawLine(prevUV.Value, uv, prevColor, faded, prevRadius, radius);
             else
                 DrawDot(uv.x, uv.y, faded, radius);
-            
+
             prevUV = uv;
             prevRadius = radius;
             prevColor = faded;
@@ -440,15 +486,16 @@ private void FindPeakDivergenceInRange(VideoPhase phase)
         }
     }
 
-    // Same center math as DrawDot, but only keeps a band between innerRadius and
-    // peakRingRadiusPixels - an unfilled ring instead of a filled circle, so it reads as a
-    // highlight around the dot rather than a third, larger dot.
-    private void DrawRing(float u, float v, Color color)
+    // Same center math as DrawDot, but only keeps a band between innerRadius and outerRadius - an
+    // unfilled ring instead of a filled circle, so it reads as a highlight around the dot rather
+    // than a third, larger dot. outerRadius is a parameter (not always peakRingRadiusPixels) so
+    // the specialist's and trainee's rings at the same key area can be drawn at different sizes -
+    // the size difference is the actual feedback, so both need to be independently sized.
+    private void DrawRing(float u, float v, Color color, int outerRadius)
     {
         int x = Mathf.RoundToInt(Mathf.Clamp01(u) * (textureSize - 1));
         int y = Mathf.RoundToInt(Mathf.Clamp01(v) * (textureSize - 1));
-        int outerRadius = peakRingRadiusPixels;
-        int innerRadius = peakRingRadiusPixels - 3;
+        int innerRadius = Mathf.Max(0, outerRadius - 3);
 
         for (int dy = -outerRadius; dy <= outerRadius; dy++)
         {

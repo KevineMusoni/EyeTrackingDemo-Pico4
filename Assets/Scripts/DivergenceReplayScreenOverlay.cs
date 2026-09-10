@@ -37,7 +37,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // (specialistDotColor / traineeDotColor) so it reads as "this is where <that person> should
     // be / is" - no separate colour to learn, the ring just echoes the dot it belongs to.
     [SerializeField] private int peakRingRadiusPixels = 20;
-
+  
     // Each phase's slider segment is coloured as a scorecard: did the trainee match the
     // specialist's dwell at that phase's key area? Matched or beat it -> pass; looked there
     // but less -> partial; never looked near it -> missed. Semi-transparent (markerAlpha) so

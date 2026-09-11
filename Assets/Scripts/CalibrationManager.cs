@@ -21,6 +21,19 @@ using System.Collections.Generic;
 // Inspector reference can't cross scene files.
 public class CalibrationManager : MonoBehaviour
 {
+    // One on-screen map marker: root toggles the whole dot on/off, ring shows pending
+    // (hollow)/active (filling)/done (solid) state, center holds whatever glyph that state
+    // needs (nothing, a small dot, or a checkmark) - see SetPointDotState.
+    [System.Serializable]
+    private struct PointDotView
+    {
+        public GameObject root;
+        public Image ring;
+        public Image center;
+    }
+
+    private enum PointDotState { Pending, Active, Done }
+
     [Header("Multi-Scene Setup")]
     // Goes to role selection first now, not straight into the demo - see RoleSelectUI.cs /
     // SessionRoleManager.cs.
@@ -46,10 +59,18 @@ public class CalibrationManager : MonoBehaviour
     // attach to calibrationMarker directly since it's a 3D mesh, not a RectTransform.
     [SerializeField] private Image markerProgressRing;
 
-    [Header("Result Display")]
-    // One dot per validationPointLocalOffsets entry, same order (top, bottom, left, right) -
-    // colored from the per-point residuals once validation completes.
-    [SerializeField] private Image[] validationQualityDots;
+    [Header("Live Point Map")]
+    // A schematic 2D readout of the whole point sequence, separate from the 3D marker/ring -
+    // lets the viewer see overall progress (which points are done) at a glance instead of only
+    // ever seeing the single point currently active in 3D space.
+    [SerializeField] private Sprite pointRingSprite;
+    [SerializeField] private Sprite pointDotSprite;
+    [SerializeField] private Sprite pointCheckmarkSprite;
+    // Same order as calibrationPointLocalOffsets (center, up-left, up-right, down-left, down-right).
+    [SerializeField] private PointDotView[] calibrationPointDots;
+    // Same order as validationPointLocalOffsets (top, bottom, left, right) - recolored by
+    // per-point residual once validation completes, see UpdateValidationQualityDots.
+    [SerializeField] private PointDotView[] validationPointDots;
 
     [Header("Calibration Points")]
     // Local offsets from this GameObject's transform, in meters.
@@ -81,9 +102,9 @@ public class CalibrationManager : MonoBehaviour
     [Header("Timing")]
     // Timeout ceiling, not a fixed duration - most points converge early (see Adaptive
     // Sampling) and advance sooner; this is the fallback if a point never stabilizes.
-    [SerializeField] private float dwellDurationPerPoint = 2f;
+    [SerializeField] private float dwellDurationPerPoint = 3.5f;
     // Sampling only starts after this long, letting the initial saccade to the new point settle.
-    [SerializeField] private float settleTimeBeforeSampling = 1f;
+    [SerializeField] private float settleTimeBeforeSampling = 2f;
     [SerializeField] private float resultDisplayDuration = 2f;
 
     [Header("Adaptive Sampling")]
@@ -92,7 +113,7 @@ public class CalibrationManager : MonoBehaviour
     // below, just computed live every frame. Starting values, not yet tuned against real data.
     [SerializeField] private float convergencePrecisionDegrees = 0.5f;
     [SerializeField] private int minSamplesBeforeConvergenceCheck = 5;
-    [SerializeField] private int minStableFramesToConverge = 10;
+    [SerializeField] private int minStableFramesToConverge = 20;
 
     [Header("Validation")]
     // A point's raw-to-true angle above this is treated as not looking at the marker, rather
@@ -199,10 +220,12 @@ public class CalibrationManager : MonoBehaviour
 
         if (markerRenderer != null)
         {
-            // .material (not .sharedMaterial) forces an instance, so flashing this marker
-            // never recolors every other renderer sharing the same material asset.
+            // .material (not .sharedMaterial) forces an instance, so recoloring this marker
+            // (both the theme-color set here and the retry flash later) never touches the
+            // shared material asset or any other renderer using it.
             markerMaterialInstance = markerRenderer.material;
-            markerBaseColor = markerMaterialInstance.color;
+            markerBaseColor = new Color(0f, 1f, 0.56078434f);
+            markerMaterialInstance.color = markerBaseColor;
         }
 
         if (markerProgressRing != null)
@@ -215,6 +238,7 @@ public class CalibrationManager : MonoBehaviour
         // with no retries, might never happen before validation completes.
         ShowResult(string.Empty, Color.white);
         UpdateProgressText();
+        RefreshPointDots();
     }
 
     private Vector3[] CurrentPointSet => phase == Phase.Calibrating ? calibrationPointLocalOffsets : validationPointLocalOffsets;
@@ -315,14 +339,20 @@ public class CalibrationManager : MonoBehaviour
     // the early-exit check in Update, so this reads it rather than tracking anything new.
     private void UpdateMarkerProgressRing(bool isSettling)
     {
-        if (markerProgressRing == null)
+        float fill = isSettling ? 0f : Mathf.Clamp01(stableFrameCount / (float)minStableFramesToConverge);
+
+        if (markerProgressRing != null)
         {
-            return;
+            markerProgressRing.fillAmount = fill;
         }
 
-        markerProgressRing.fillAmount = isSettling
-            ? 0f
-            : Mathf.Clamp01(stableFrameCount / (float)minStableFramesToConverge);
+        // The map dot for whichever point is currently active mirrors the same convergence
+        // progress the 3D marker's own ring shows - one metric, two presentations.
+        PointDotView[] activeSet = phase == Phase.Calibrating ? calibrationPointDots : validationPointDots;
+        if (activeSet != null && currentPointIndex >= 0 && currentPointIndex < activeSet.Length && activeSet[currentPointIndex].ring != null)
+        {
+            activeSet[currentPointIndex].ring.fillAmount = fill;
+        }
     }
 
     private void FlashMarkerRed()
@@ -363,45 +393,119 @@ public class CalibrationManager : MonoBehaviour
         markerFlashCoroutine = null;
     }
 
-    // Dot order matches validationPointLocalOffsets (top, bottom, left, right). Takes whichever
-    // residual list actually shipped (corrected vs uncorrected fallback - see correctionHelps
-    // in HandleValidationComplete) so the dots never show a rosier number than what's live.
-    private void UpdateValidationQualityDots(List<float> residuals)
+    private static readonly Color PendingDotColor = new Color(1f, 1f, 1f, 0.25f);
+    private static readonly Color ActiveDotColor = new Color(0.94f, 0.62f, 0.15f, 1f);
+    private static readonly Color DoneDotColor = new Color(0f, 1f, 0.56078434f, 1f);
+
+    private void SetPointDotState(PointDotView dot, PointDotState state)
     {
-        if (validationQualityDots == null)
+        if (dot.ring == null)
         {
             return;
         }
 
-        for (int i = 0; i < validationQualityDots.Length; i++)
+        switch (state)
         {
-            if (validationQualityDots[i] == null)
-            {
-                continue;
-            }
+            case PointDotState.Pending:
+                dot.ring.sprite = pointRingSprite;
+                dot.ring.type = Image.Type.Simple;
+                dot.ring.color = PendingDotColor;
+                if (dot.center != null)
+                {
+                    dot.center.gameObject.SetActive(false);
+                }
+                break;
 
-            bool hasData = i < residuals.Count;
-            validationQualityDots[i].gameObject.SetActive(hasData);
-            if (hasData)
+            case PointDotState.Active:
+                dot.ring.sprite = pointRingSprite;
+                dot.ring.type = Image.Type.Filled;
+                dot.ring.fillMethod = Image.FillMethod.Radial360;
+                dot.ring.fillOrigin = (int)Image.Origin360.Top;
+                dot.ring.fillAmount = 0f;
+                dot.ring.color = ActiveDotColor;
+                if (dot.center != null)
+                {
+                    dot.center.gameObject.SetActive(true);
+                    dot.center.sprite = pointDotSprite;
+                    dot.center.color = ActiveDotColor;
+                }
+                break;
+
+            case PointDotState.Done:
+                dot.ring.sprite = pointDotSprite;
+                dot.ring.type = Image.Type.Simple;
+                dot.ring.color = DoneDotColor;
+                if (dot.center != null)
+                {
+                    dot.center.gameObject.SetActive(true);
+                    dot.center.sprite = pointCheckmarkSprite;
+                    dot.center.color = Color.white;
+                }
+                break;
+        }
+    }
+
+    private static void SetDotArrayVisible(PointDotView[] dots, bool visible)
+    {
+        if (dots == null)
+        {
+            return;
+        }
+
+        foreach (PointDotView dot in dots)
+        {
+            if (dot.root != null)
             {
-                validationQualityDots[i].color = GetBiasQualityColor(residuals[i]);
+                dot.root.SetActive(visible);
             }
         }
     }
 
-    private void HideValidationQualityDots()
+    // Redraws the whole map for the CURRENT phase's point set from currentPointIndex alone -
+    // called at every point in the flow where currentPointIndex or phase changes, so the map
+    // never needs its own separate bookkeeping of what's done vs pending.
+    private void RefreshPointDots()
     {
-        if (validationQualityDots == null)
+        PointDotView[] activeSet = phase == Phase.Calibrating ? calibrationPointDots : validationPointDots;
+        PointDotView[] otherSet = phase == Phase.Calibrating ? validationPointDots : calibrationPointDots;
+
+        SetDotArrayVisible(otherSet, false);
+        SetDotArrayVisible(activeSet, true);
+
+        if (activeSet == null)
         {
             return;
         }
 
-        foreach (Image dot in validationQualityDots)
+        for (int i = 0; i < activeSet.Length; i++)
         {
-            if (dot != null)
+            PointDotState state = i < currentPointIndex ? PointDotState.Done
+                : i == currentPointIndex ? PointDotState.Active
+                : PointDotState.Pending;
+            SetPointDotState(activeSet[i], state);
+        }
+    }
+
+    // Dot order matches validationPointLocalOffsets (top, bottom, left, right). Takes whichever
+    // residual list actually shipped (corrected vs uncorrected fallback - see correctionHelps
+    // in HandleValidationComplete) so the dots never show a rosier number than what's live.
+    // Only recolors the ring - RefreshPointDots has already marked every dot Done (solid +
+    // checkmark) by the time validation completes, this just layers the quality tier on top.
+    private void UpdateValidationQualityDots(List<float> residuals)
+    {
+        if (validationPointDots == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < validationPointDots.Length; i++)
+        {
+            if (validationPointDots[i].ring == null || i >= residuals.Count)
             {
-                dot.gameObject.SetActive(false);
+                continue;
             }
+
+            validationPointDots[i].ring.color = GetBiasQualityColor(residuals[i]);
         }
     }
 
@@ -535,6 +639,7 @@ public class CalibrationManager : MonoBehaviour
 
         calibrationMarker.position = transform.TransformPoint(points[currentPointIndex]);
         UpdateProgressText();
+        RefreshPointDots();
     }
 
     // A failed point retries itself instead of advancing, so reaching this method at all means
@@ -548,6 +653,7 @@ public class CalibrationManager : MonoBehaviour
         currentPointIndex = 0;
         calibrationMarker.position = transform.TransformPoint(validationPointLocalOffsets[0]);
         UpdateProgressText();
+        RefreshPointDots();
     }
 
     // Combines N rotation estimates into the single rotation closest to all of them
@@ -628,6 +734,7 @@ public class CalibrationManager : MonoBehaviour
         phase = Phase.Finished;
         calibrationMarker.gameObject.SetActive(false);
         UpdateProgressText();
+        RefreshPointDots();
 
         float averageResidualDegrees = validationResidualSum / validationPointsMeasured;
         float averageTrainingBiasDegrees = biasAngleSum / pointsCollected;
@@ -749,7 +856,7 @@ public class CalibrationManager : MonoBehaviour
         phase = Phase.Calibrating;
 
         ShowResult(string.Empty, Color.white);
-        HideValidationQualityDots();
+        RefreshPointDots();
         if (markerFlashCoroutine != null)
         {
             StopCoroutine(markerFlashCoroutine);

@@ -1397,7 +1397,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   flatMono: 1
   videoFileName: LAR_Surgery_test_20s_seekable.mp4
-  playbackSpeed: 1
+  playbackSpeed: 0.5
   overlayShape: 1
   cylinderRadius: 0
 --- !u!114 &743741209

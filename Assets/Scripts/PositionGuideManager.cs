@@ -3,6 +3,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Unity.XR.PXR;
+using UnityEngine.UI;
 
 // Live headset-fit guide, shown before Calibration.unity loads. Reads Pico's per-eye position-
 // guide signal (normalized 0-1, ideally centered at 0.5/0.5) and moves UI indicators to match,
@@ -33,6 +34,15 @@ public class PositionGuideManager : MonoBehaviour
     [SerializeField] private RectTransform rightCenterTarget;
     [SerializeField] private RectTransform leftChecker;
     [SerializeField] private RectTransform rightChecker;
+
+
+    [Header("Progress Rings")]
+    // The inner circle Image on each checker (LeftCheckerInner / RightCheckerInner), switched to
+    // Image Type = Filled in the scene (Part B). Colour and fillAmount are driven every frame below.
+    [SerializeField] private Image leftProgressRing;
+    [SerializeField] private Image rightProgressRing;
+    [SerializeField] private Color adjustingColor = new Color(0.94f, 0.62f, 0.15f); //amber
+    [SerializeField] private Color centeredColor = new Color(0f, 1f, 0.56078434f); // theme green #00FF8F
 
     // Maps the 0-1 normalized position's offset from center into the frame graphic's actual
     // pixel size - tune to match whatever frame texture ends up used.
@@ -90,8 +100,14 @@ public class PositionGuideManager : MonoBehaviour
         Vector2 leftDotPos = UpdateIndicator(leftEyeIndicator, leftValid, leftPosition, leftBase);
         Vector2 rightDotPos = UpdateIndicator(rightEyeIndicator, rightValid, rightPosition, rightBase);
 
-        bool leftCentered = leftValid && IsOnChecker(leftDotPos, leftBase, leftChecker);
-        bool rightCentered = rightValid && IsOnChecker(rightDotPos, rightBase, rightChecker);
+        float leftDistance = GetDistanceToChecker(leftDotPos, leftBase, leftChecker);
+        float rightDistance = GetDistanceToChecker(rightDotPos, rightBase, rightChecker);
+
+        bool leftCentered = leftValid && leftDistance <= pixelTolerance;
+        bool rightCentered = rightValid && rightDistance <= pixelTolerance;
+
+        UpdateProgressRing(leftProgressRing, leftValid, leftCentered, leftDistance);
+        UpdateProgressRing(rightProgressRing, rightValid, rightCentered, rightDistance);
 
         if (leftCentered && rightCentered)
         {
@@ -115,15 +131,43 @@ public class PositionGuideManager : MonoBehaviour
         }
     }
 
-    private bool IsOnChecker(Vector2 dotPosition, Vector2 basePosition, RectTransform checker)
+    private float GetDistanceToChecker(Vector2 dotPosition, Vector2 basePosition, RectTransform checker)
     {
         if (checker == null)
         {
-            return false;
+            return float.MaxValue;
         }
 
         Vector2 checkerPosition = basePosition + checker.anchoredPosition;
-        return Vector2.Distance(dotPosition, checkerPosition) <= pixelTolerance;
+        return Vector2.Distance(dotPosition, checkerPosition);
+    }
+
+    // Two phases: while off-target, the ring fills as a continuous "getting warmer" gauge instead
+    // of staying empty until the exact instant of a pass. Once on-target, it switches to showing
+    // the shared hold countdown (both eyes must stay centered together for requiredStableFrames),
+    // so a viewer can see "you're doing it, just hold" rather than nothing happening for ~0.8s.
+    private void UpdateProgressRing(Image ring, bool valid, bool centered, float distance)
+    {
+        if (ring == null) return;
+
+        if (!valid)
+        {
+            ring.fillAmount = 0f;
+            return;
+        }
+
+        if (centered)
+        {
+            float holdProgress = Mathf.Clamp01((float)stableFrameCount / requiredStableFrames);
+            ring.fillAmount = holdProgress;
+            ring.color = Color.Lerp(adjustingColor, centeredColor, holdProgress);
+        }
+        else
+        {
+            float closeness = 1f - Mathf.Clamp01(distance / (pixelTolerance * 2f));
+            ring.fillAmount = closeness;
+            ring.color = adjustingColor;
+        }
     }
 
     private Vector2 UpdateIndicator(RectTransform indicator, bool valid, Vector3 position, Vector2 basePosition)

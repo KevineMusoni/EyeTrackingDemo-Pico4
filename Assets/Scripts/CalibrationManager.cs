@@ -21,18 +21,19 @@ using System.Collections.Generic;
 // Inspector reference can't cross scene files.
 public class CalibrationManager : MonoBehaviour
 {
-    // One on-screen map marker: root toggles the whole dot on/off, ring shows pending
-    // (hollow)/active (filling)/done (solid) state, center holds whatever glyph that state
-    // needs (nothing, a small dot, or a checkmark) - see SetPointDotState.
+    // A small static 3D marker sitting at the point's own real world position - positioned via
+    // the exact same transform.TransformPoint(offset) call the real calibrationMarker uses, so
+    // it is exactly where that point is, not an approximation. Hidden entirely for whichever
+    // index is currently active, since the real (larger, green) marker already occupies that
+    // spot - no separate indicator is needed there.
     [System.Serializable]
-    private struct PointDotView
+    private struct PointMarkerView
     {
-        public GameObject root;
-        public Image ring;
-        public Image center;
+        public MeshRenderer markerRenderer;
+        // Small world-space Canvas Image, same technique as markerProgressRing - only shown
+        // once this point is Done, so it never competes with the amber "look here now" marker.
+        public Image checkmark;
     }
-
-    private enum PointDotState { Pending, Active, Done }
 
     [Header("Multi-Scene Setup")]
     // Goes to role selection first now, not straight into the demo - see RoleSelectUI.cs /
@@ -60,17 +61,23 @@ public class CalibrationManager : MonoBehaviour
     [SerializeField] private Image markerProgressRing;
 
     [Header("Live Point Map")]
-    // A schematic 2D readout of the whole point sequence, separate from the 3D marker/ring -
-    // lets the viewer see overall progress (which points are done) at a glance instead of only
-    // ever seeing the single point currently active in 3D space.
-    [SerializeField] private Sprite pointRingSprite;
-    [SerializeField] private Sprite pointDotSprite;
-    [SerializeField] private Sprite pointCheckmarkSprite;
+    // Small static markers at each point's own real 3D position, showing overall progress
+    // (done/pending) at a glance instead of only ever seeing the single point currently active.
+    // Positioned once in Start() from the same offsets/transform the real marker itself uses -
+    // deliberately NOT a 2D screen-space overlay, since a screen-space approximation can never
+    // reliably line up with where these real 3D points project (the camera moves with head
+    // tracking; a static canvas position can't track that). Being real 3D objects at the real
+    // coordinates makes "where is this dot" a non-question by construction.
+    //
+    // NOT gaze targets - PXR only measures against calibrationMarker itself. Never share
+    // markerBaseColor's green with these, and always hide the marker at currentPointIndex (the
+    // real marker already sits there) - confusing the two is what caused a viewer to look at
+    // the wrong thing and fail a point for real, earlier in this feature's life.
     // Same order as calibrationPointLocalOffsets (center, up-left, up-right, down-left, down-right).
-    [SerializeField] private PointDotView[] calibrationPointDots;
+    [SerializeField] private PointMarkerView[] calibrationPointDots;
     // Same order as validationPointLocalOffsets (top, bottom, left, right) - recolored by
     // per-point residual once validation completes, see UpdateValidationQualityDots.
-    [SerializeField] private PointDotView[] validationPointDots;
+    [SerializeField] private PointMarkerView[] validationPointDots;
 
     [Header("Calibration Points")]
     // Local offsets from this GameObject's transform, in meters.
@@ -224,13 +231,18 @@ public class CalibrationManager : MonoBehaviour
             // (both the theme-color set here and the retry flash later) never touches the
             // shared material asset or any other renderer using it.
             markerMaterialInstance = markerRenderer.material;
-            markerBaseColor = new Color(0f, 1f, 0.56078434f);
+            // Amber, not the app's theme green - this marker IS the "look at me, still
+            // loading" signal, and green is reserved for the small Done breadcrumbs left
+            // behind once a point is confirmed (see DoneDotColor) so the two are never
+            // confusable with each other.
+            markerBaseColor = new Color(0.94f, 0.62f, 0.15f, 1f);
             markerMaterialInstance.color = markerBaseColor;
         }
 
         if (markerProgressRing != null)
         {
             markerProgressRing.fillAmount = 0f;
+            markerProgressRing.color = markerBaseColor;
         }
 
         // statusText otherwise keeps whatever placeholder was saved in the scene ("Result")
@@ -238,7 +250,29 @@ public class CalibrationManager : MonoBehaviour
         // with no retries, might never happen before validation completes.
         ShowResult(string.Empty, Color.white);
         UpdateProgressText();
+
+        // Each point marker's position is fixed for the whole session - the point itself never
+        // moves, only the real calibrationMarker travels between them - so this only needs to
+        // run once, not every frame.
+        PositionPointMarkers(calibrationPointDots, calibrationPointLocalOffsets);
+        PositionPointMarkers(validationPointDots, validationPointLocalOffsets);
         RefreshPointDots();
+    }
+
+    private void PositionPointMarkers(PointMarkerView[] markers, Vector3[] offsets)
+    {
+        if (markers == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < markers.Length && i < offsets.Length; i++)
+        {
+            if (markers[i].markerRenderer != null)
+            {
+                markers[i].markerRenderer.transform.position = transform.TransformPoint(offsets[i]);
+            }
+        }
     }
 
     private Vector3[] CurrentPointSet => phase == Phase.Calibrating ? calibrationPointLocalOffsets : validationPointLocalOffsets;
@@ -339,20 +373,14 @@ public class CalibrationManager : MonoBehaviour
     // the early-exit check in Update, so this reads it rather than tracking anything new.
     private void UpdateMarkerProgressRing(bool isSettling)
     {
-        float fill = isSettling ? 0f : Mathf.Clamp01(stableFrameCount / (float)minStableFramesToConverge);
-
-        if (markerProgressRing != null)
+        if (markerProgressRing == null)
         {
-            markerProgressRing.fillAmount = fill;
+            return;
         }
 
-        // The map dot for whichever point is currently active mirrors the same convergence
-        // progress the 3D marker's own ring shows - one metric, two presentations.
-        PointDotView[] activeSet = phase == Phase.Calibrating ? calibrationPointDots : validationPointDots;
-        if (activeSet != null && currentPointIndex >= 0 && currentPointIndex < activeSet.Length && activeSet[currentPointIndex].ring != null)
-        {
-            activeSet[currentPointIndex].ring.fillAmount = fill;
-        }
+        markerProgressRing.fillAmount = isSettling
+            ? 0f
+            : Mathf.Clamp01(stableFrameCount / (float)minStableFramesToConverge);
     }
 
     private void FlashMarkerRed()
@@ -393,70 +421,29 @@ public class CalibrationManager : MonoBehaviour
         markerFlashCoroutine = null;
     }
 
-    private static readonly Color PendingDotColor = new Color(1f, 1f, 1f, 0.25f);
-    private static readonly Color ActiveDotColor = new Color(0.94f, 0.62f, 0.15f, 1f);
+    private static readonly Color PendingDotColor = new Color(0.3f, 0.3f, 0.3f, 1f);
+    // Safe to reuse the app's theme green here now - markerBaseColor is amber while a point is
+    // active, so a Done breadcrumb (green) and the live marker (amber) are never the same color
+    // at the same time. The confusion this avoided earlier came from an amber-vs-amber or
+    // green-vs-green clash, not from green appearing at all.
     private static readonly Color DoneDotColor = new Color(0f, 1f, 0.56078434f, 1f);
 
-    private void SetPointDotState(PointDotView dot, PointDotState state)
-    {
-        if (dot.ring == null)
-        {
-            return;
-        }
-
-        switch (state)
-        {
-            case PointDotState.Pending:
-                dot.ring.sprite = pointRingSprite;
-                dot.ring.type = Image.Type.Simple;
-                dot.ring.color = PendingDotColor;
-                if (dot.center != null)
-                {
-                    dot.center.gameObject.SetActive(false);
-                }
-                break;
-
-            case PointDotState.Active:
-                dot.ring.sprite = pointRingSprite;
-                dot.ring.type = Image.Type.Filled;
-                dot.ring.fillMethod = Image.FillMethod.Radial360;
-                dot.ring.fillOrigin = (int)Image.Origin360.Top;
-                dot.ring.fillAmount = 0f;
-                dot.ring.color = ActiveDotColor;
-                if (dot.center != null)
-                {
-                    dot.center.gameObject.SetActive(true);
-                    dot.center.sprite = pointDotSprite;
-                    dot.center.color = ActiveDotColor;
-                }
-                break;
-
-            case PointDotState.Done:
-                dot.ring.sprite = pointDotSprite;
-                dot.ring.type = Image.Type.Simple;
-                dot.ring.color = DoneDotColor;
-                if (dot.center != null)
-                {
-                    dot.center.gameObject.SetActive(true);
-                    dot.center.sprite = pointCheckmarkSprite;
-                    dot.center.color = Color.white;
-                }
-                break;
-        }
-    }
-
-    private static void SetDotArrayVisible(PointDotView[] dots, bool visible)
+    private static void SetDotArrayVisible(PointMarkerView[] dots, bool visible)
     {
         if (dots == null)
         {
             return;
         }
 
-        foreach (PointDotView dot in dots)
+        foreach (PointMarkerView dot in dots)
         {
-            if (dot.root != null)
+            if (dot.markerRenderer != null)
             {
-                dot.root.SetActive(visible);
+                dot.markerRenderer.gameObject.SetActive(visible);
+            }
+            if (!visible && dot.checkmark != null)
+            {
+                dot.checkmark.gameObject.SetActive(false);
             }
         }
     }
@@ -466,11 +453,10 @@ public class CalibrationManager : MonoBehaviour
     // never needs its own separate bookkeeping of what's done vs pending.
     private void RefreshPointDots()
     {
-        PointDotView[] activeSet = phase == Phase.Calibrating ? calibrationPointDots : validationPointDots;
-        PointDotView[] otherSet = phase == Phase.Calibrating ? validationPointDots : calibrationPointDots;
+        PointMarkerView[] activeSet = phase == Phase.Calibrating ? calibrationPointDots : validationPointDots;
+        PointMarkerView[] otherSet = phase == Phase.Calibrating ? validationPointDots : calibrationPointDots;
 
         SetDotArrayVisible(otherSet, false);
-        SetDotArrayVisible(activeSet, true);
 
         if (activeSet == null)
         {
@@ -479,18 +465,38 @@ public class CalibrationManager : MonoBehaviour
 
         for (int i = 0; i < activeSet.Length; i++)
         {
-            PointDotState state = i < currentPointIndex ? PointDotState.Done
-                : i == currentPointIndex ? PointDotState.Active
-                : PointDotState.Pending;
-            SetPointDotState(activeSet[i], state);
+            if (activeSet[i].markerRenderer == null)
+            {
+                continue;
+            }
+
+            if (i == currentPointIndex)
+            {
+                // The real marker already sits at this exact point right now - a second
+                // indicator here would just be a duplicate object in the same spot.
+                activeSet[i].markerRenderer.gameObject.SetActive(false);
+                if (activeSet[i].checkmark != null)
+                {
+                    activeSet[i].checkmark.gameObject.SetActive(false);
+                }
+                continue;
+            }
+
+            bool isDone = i < currentPointIndex;
+            activeSet[i].markerRenderer.gameObject.SetActive(true);
+            activeSet[i].markerRenderer.material.color = isDone ? DoneDotColor : PendingDotColor;
+            if (activeSet[i].checkmark != null)
+            {
+                activeSet[i].checkmark.gameObject.SetActive(isDone);
+            }
         }
     }
 
     // Dot order matches validationPointLocalOffsets (top, bottom, left, right). Takes whichever
     // residual list actually shipped (corrected vs uncorrected fallback - see correctionHelps
     // in HandleValidationComplete) so the dots never show a rosier number than what's live.
-    // Only recolors the ring - RefreshPointDots has already marked every dot Done (solid +
-    // checkmark) by the time validation completes, this just layers the quality tier on top.
+    // Only runs after RefreshPointDots has already marked every validation point Done (all 4
+    // succeeded, by construction, to even reach here) - this just layers the quality tier on.
     private void UpdateValidationQualityDots(List<float> residuals)
     {
         if (validationPointDots == null)
@@ -500,12 +506,12 @@ public class CalibrationManager : MonoBehaviour
 
         for (int i = 0; i < validationPointDots.Length; i++)
         {
-            if (validationPointDots[i].ring == null || i >= residuals.Count)
+            if (validationPointDots[i].markerRenderer == null || i >= residuals.Count)
             {
                 continue;
             }
 
-            validationPointDots[i].ring.color = GetBiasQualityColor(residuals[i]);
+            validationPointDots[i].markerRenderer.material.color = GetBiasQualityColor(residuals[i]);
         }
     }
 

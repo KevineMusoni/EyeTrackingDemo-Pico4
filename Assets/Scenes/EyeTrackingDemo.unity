@@ -2434,6 +2434,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -2836,6 +2837,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89986c411229ea34684f2a107166042c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  flatMono: 0
   videoFileName: LAR_Surgery_test_20s.mp4
   playbackSpeed: 1
   overlayShape: 1
@@ -3171,6 +3173,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -5417,7 +5420,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!64 &982759297
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -5515,6 +5518,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -5542,6 +5546,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89986c411229ea34684f2a107166042c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  flatMono: 0
   videoFileName: LAR_Surgery_test_20s.mp4
   playbackSpeed: 1
   overlayShape: 1
@@ -5713,6 +5718,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -6348,6 +6354,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -6381,6 +6388,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2
@@ -10497,7 +10505,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!23 &2027327160
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -10732,6 +10740,7 @@ MonoBehaviour:
   maxBrushRadiusPixels: 64
   heatPerSecond: 1
   instantReticleMode: 0
+  renderReticle: 1
   reticleColor: {r: 0, g: 1, b: 0.56078434, a: 1}
   tailDurationSeconds: 0.5
   tailMinRadiusPixels: 2

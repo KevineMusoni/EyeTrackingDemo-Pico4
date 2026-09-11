@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
 
 // 5-point rotational gaze calibration, validated against 4 held-out points, run in a dedicated
@@ -30,6 +32,24 @@ public class CalibrationManager : MonoBehaviour
     // borrow one from during calibration.
     [SerializeField] private Transform xrOrigin;
     [SerializeField] private TMP_Text statusText;
+    // Fixed on screen regardless of which corner the marker is currently at - the bias model
+    // assumes the head stays still through the whole point sequence, so a plain static position
+    // stays in view the entire time without needing to be head-locked.
+    [SerializeField] private TMP_Text progressText;
+
+    [Header("Marker Visuals")]
+    // The marker's own sphere - used for the idle-pulse breathing scale and the retry flash.
+    // A separate reference from calibrationMarker so a marker prefab swap without a
+    // MeshRenderer at the root still degrades gracefully (visuals just no-op).
+    [SerializeField] private MeshRenderer markerRenderer;
+    // World-space Canvas Image parented under the marker - a UI Image.fillAmount ring can't
+    // attach to calibrationMarker directly since it's a 3D mesh, not a RectTransform.
+    [SerializeField] private Image markerProgressRing;
+
+    [Header("Result Display")]
+    // One dot per validationPointLocalOffsets entry, same order (top, bottom, left, right) -
+    // colored from the per-point residuals once validation completes.
+    [SerializeField] private Image[] validationQualityDots;
 
     [Header("Calibration Points")]
     // Local offsets from this GameObject's transform, in meters.
@@ -89,6 +109,9 @@ public class CalibrationManager : MonoBehaviour
     public static bool IsCalibrated { get; private set; } = false;
     public static Quaternion CalibrationCorrectionLocal { get; private set; } = Quaternion.identity;
 
+    public IReadOnlyList<float> PerPointCorrectionAngles => perPointCorrectionAngles;
+    public IReadOnlyList<float> PerPointValidationResiduals => perPointValidationResiduals;
+
     private Matrix4x4 originPoseMatrix;
     private Matrix4x4 headPoseMatrix;
     // Last successful read's world-space gaze origin/head pose - a dwell-completion frame can
@@ -111,6 +134,15 @@ public class CalibrationManager : MonoBehaviour
     // Each accepted training point's own correction, fit into one CalibrationCorrectionLocal
     // simultaneously in HandleCalibrationComplete - see AverageQuaternions.
     private List<Quaternion> acceptedPointCorrections = new List<Quaternion>();
+    // Same data as biasAngleSum/validationResidualSum, kept per-point instead of only summed -
+    // needed for a per-point quality readout (e.g. a result-screen dot per point) rather than
+    // just the sequence-wide average.
+    private List<float> perPointCorrectionAngles = new List<float>();
+    private List<float> perPointValidationResiduals = new List<float>();
+    // Parallel to perPointValidationResiduals but with CalibrationCorrectionLocal never
+    // applied - lets the result-screen dots reflect whichever result actually shipped (see
+    // correctionHelps in HandleValidationComplete), not always the corrected numbers.
+    private List<float> perPointUncorrectedValidationResiduals = new List<float>();
     // Raw samples for the CURRENT point's settle window - sampleSum only gives the mean, this
     // is what precisionDegrees (spread around that mean) is computed from.
     private List<Vector3> currentPointRawSamplesLocal = new List<Vector3>();
@@ -139,6 +171,13 @@ public class CalibrationManager : MonoBehaviour
     private enum Phase { Calibrating, Validating, Finished }
     private Phase phase = Phase.Calibrating;
 
+    // Cached once in Start so the pulse/flash coroutines have a known rest state to lerp back
+    // to, instead of hardcoding a color/scale that would drift from whatever's on the marker.
+    private Material markerMaterialInstance;
+    private Color markerBaseColor;
+    private Vector3 markerBaseScale;
+    private Coroutine markerFlashCoroutine;
+
     private void Awake()
     {
         IsCalibrated = false;
@@ -155,10 +194,52 @@ public class CalibrationManager : MonoBehaviour
         if (calibrationMarker != null && calibrationPointLocalOffsets.Length > 0)
         {
             calibrationMarker.position = transform.TransformPoint(calibrationPointLocalOffsets[0]);
+            markerBaseScale = calibrationMarker.localScale;
         }
+
+        if (markerRenderer != null)
+        {
+            // .material (not .sharedMaterial) forces an instance, so flashing this marker
+            // never recolors every other renderer sharing the same material asset.
+            markerMaterialInstance = markerRenderer.material;
+            markerBaseColor = markerMaterialInstance.color;
+        }
+
+        if (markerProgressRing != null)
+        {
+            markerProgressRing.fillAmount = 0f;
+        }
+
+        // statusText otherwise keeps whatever placeholder was saved in the scene ("Result")
+        // until a fit-guidance nudge or the final result overwrites it - which, on a clean run
+        // with no retries, might never happen before validation completes.
+        ShowResult(string.Empty, Color.white);
+        UpdateProgressText();
     }
 
     private Vector3[] CurrentPointSet => phase == Phase.Calibrating ? calibrationPointLocalOffsets : validationPointLocalOffsets;
+
+    // Fixed "POINT X OF Y" readout, independent of which corner the marker is currently
+    // travelling to - currentPointIndex already means "the point in progress" everywhere else
+    // in this class, so it's used as-is rather than re-deriving a display index.
+    private void UpdateProgressText()
+    {
+        if (progressText == null)
+        {
+            return;
+        }
+
+        if (phase == Phase.Finished)
+        {
+            progressText.text = string.Empty;
+            return;
+        }
+
+        string phaseLabel = phase == Phase.Validating ? "CONFIRMING ACCURACY" : "CALIBRATING";
+        int totalPoints = CurrentPointSet.Length;
+        int displayIndex = Mathf.Min(currentPointIndex + 1, totalPoints);
+        progressText.text = $"{phaseLabel} · POINT {displayIndex} OF {totalPoints}";
+    }
 
     private void Update()
     {
@@ -168,6 +249,10 @@ public class CalibrationManager : MonoBehaviour
         }
 
         pointTimer += Time.deltaTime;
+
+        bool isSettling = pointTimer < settleTimeBeforeSampling;
+        UpdateMarkerIdlePulse(isSettling);
+        UpdateMarkerProgressRing(isSettling);
 
         if (GazeReading.TryReadRawGaze(out headPoseMatrix, out Vector3 rawGazeVector, out Vector3 rawGazeOrigin))
         {
@@ -211,6 +296,115 @@ public class CalibrationManager : MonoBehaviour
         }
     }
 
+    // Only pulses while settling, not while sampling - a moving target during the sampling
+    // window would bias the gaze-direction math the same way head movement would.
+    private void UpdateMarkerIdlePulse(bool isSettling)
+    {
+        if (calibrationMarker == null)
+        {
+            return;
+        }
+
+        calibrationMarker.localScale = isSettling
+            ? markerBaseScale * (1f + 0.08f * Mathf.Sin(Time.time * 4f))
+            : markerBaseScale;
+    }
+
+    // Empty during settle (nothing to show progress on yet), then fills as samples converge -
+    // stableFrameCount already IS a 0..minStableFramesToConverge progress value, computed for
+    // the early-exit check in Update, so this reads it rather than tracking anything new.
+    private void UpdateMarkerProgressRing(bool isSettling)
+    {
+        if (markerProgressRing == null)
+        {
+            return;
+        }
+
+        markerProgressRing.fillAmount = isSettling
+            ? 0f
+            : Mathf.Clamp01(stableFrameCount / (float)minStableFramesToConverge);
+    }
+
+    private void FlashMarkerRed()
+    {
+        if (markerMaterialInstance == null)
+        {
+            return;
+        }
+
+        if (markerFlashCoroutine != null)
+        {
+            StopCoroutine(markerFlashCoroutine);
+        }
+        markerFlashCoroutine = StartCoroutine(FlashMarkerRedRoutine());
+    }
+
+    private IEnumerator FlashMarkerRedRoutine()
+    {
+        const float halfDuration = 0.15f;
+
+        float t = 0f;
+        while (t < halfDuration)
+        {
+            t += Time.deltaTime;
+            markerMaterialInstance.color = Color.Lerp(markerBaseColor, Color.red, t / halfDuration);
+            yield return null;
+        }
+
+        t = 0f;
+        while (t < halfDuration)
+        {
+            t += Time.deltaTime;
+            markerMaterialInstance.color = Color.Lerp(Color.red, markerBaseColor, t / halfDuration);
+            yield return null;
+        }
+
+        markerMaterialInstance.color = markerBaseColor;
+        markerFlashCoroutine = null;
+    }
+
+    // Dot order matches validationPointLocalOffsets (top, bottom, left, right). Takes whichever
+    // residual list actually shipped (corrected vs uncorrected fallback - see correctionHelps
+    // in HandleValidationComplete) so the dots never show a rosier number than what's live.
+    private void UpdateValidationQualityDots(List<float> residuals)
+    {
+        if (validationQualityDots == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < validationQualityDots.Length; i++)
+        {
+            if (validationQualityDots[i] == null)
+            {
+                continue;
+            }
+
+            bool hasData = i < residuals.Count;
+            validationQualityDots[i].gameObject.SetActive(hasData);
+            if (hasData)
+            {
+                validationQualityDots[i].color = GetBiasQualityColor(residuals[i]);
+            }
+        }
+    }
+
+    private void HideValidationQualityDots()
+    {
+        if (validationQualityDots == null)
+        {
+            return;
+        }
+
+        foreach (Image dot in validationQualityDots)
+        {
+            if (dot != null)
+            {
+                dot.gameObject.SetActive(false);
+            }
+        }
+    }
+
     private bool RecordCurrentPointCorrection(Vector3 gazeOriginWorld, Matrix4x4 headPose)
     {
         if (sampleCount == 0)
@@ -241,6 +435,7 @@ public class CalibrationManager : MonoBehaviour
         Debug.Log($"[CalibrationManager] Point {currentPointIndex} correction: {pointCorrection.eulerAngles} (angle={pointCorrectionAngle:F1}°) - accepted {acceptedPointCorrections.Count}/{calibrationPointLocalOffsets.Length} so far.");
 
         biasAngleSum += pointCorrectionAngle;
+        perPointCorrectionAngles.Add(pointCorrectionAngle);
         pointsCollected++;
         return true;
     }
@@ -277,6 +472,8 @@ public class CalibrationManager : MonoBehaviour
         Debug.Log($"[CalibrationManager] Validation point {currentPointIndex} accepted - residual (accuracy)={residualAngle:F1}°, precision (sample spread)={precisionDegrees:F1}°, uncorrected (raw) residual={rawAngle:F1}°.");
 
         validationResidualSum += residualAngle;
+        perPointValidationResiduals.Add(residualAngle);
+        perPointUncorrectedValidationResiduals.Add(rawAngle);
         validationPrecisionSum += precisionDegrees;
         validationUncorrectedResidualSum += rawAngle;
         if (residualAngle > validationWorstResidualDegrees)
@@ -315,6 +512,7 @@ public class CalibrationManager : MonoBehaviour
         else
         {
             currentPointRetryCount++;
+            FlashMarkerRed();
             if (currentPointRetryCount >= perPointFitGuidanceThreshold)
             {
                 ShowResult("Having trouble tracking this point - try adjusting your headset fit", Color.yellow);
@@ -336,6 +534,7 @@ public class CalibrationManager : MonoBehaviour
         }
 
         calibrationMarker.position = transform.TransformPoint(points[currentPointIndex]);
+        UpdateProgressText();
     }
 
     // A failed point retries itself instead of advancing, so reaching this method at all means
@@ -348,6 +547,7 @@ public class CalibrationManager : MonoBehaviour
         phase = Phase.Validating;
         currentPointIndex = 0;
         calibrationMarker.position = transform.TransformPoint(validationPointLocalOffsets[0]);
+        UpdateProgressText();
     }
 
     // Combines N rotation estimates into the single rotation closest to all of them
@@ -427,6 +627,7 @@ public class CalibrationManager : MonoBehaviour
     {
         phase = Phase.Finished;
         calibrationMarker.gameObject.SetActive(false);
+        UpdateProgressText();
 
         float averageResidualDegrees = validationResidualSum / validationPointsMeasured;
         float averageTrainingBiasDegrees = biasAngleSum / pointsCollected;
@@ -449,18 +650,19 @@ public class CalibrationManager : MonoBehaviour
             worstResidualPointIndex = validationWorstUncorrectedResidualPointIndex;
         }
 
-        string qualityLabel = GetBiasQualityLabel(averageResidualDegrees);
-        int qualityPercent = GetBiasQualityPercent(averageResidualDegrees);
+        UpdateValidationQualityDots(correctionHelps ? perPointValidationResiduals : perPointUncorrectedValidationResiduals);
 
         // Gates on both the mean AND the worst point - a good average can hide one badly
         // tracked region of the field, so every point has to independently qualify as Good.
         bool worstPointAcceptable = worstResidualDegrees <= GoodBiasCeilingDegrees;
         bool qualityAcceptable = averageResidualDegrees <= GoodBiasCeilingDegrees && worstPointAcceptable;
 
+        // On-screen messaging only ever needs to say pass or fail (complete vs retrying) - the
+        // graded quality tiers below exist for the pass/fail math and the dots' colors, not for
+        // display text, so the log lines report the raw numbers rather than a label/percent.
         if (qualityAcceptable)
         {
-            Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}° - worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°) - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
-            // Label/percent stay in the log only - see GetBiasQualityPercent.
+            Debug.Log($"[CalibrationManager] Validation complete: {validationPointsMeasured}/{validationPointLocalOffsets.Length} points measured. Residual error={averageResidualDegrees:F1}° vs uncorrected {averageUncorrectedResidualDegrees:F1}° - worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°) - training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°. CalibrationCorrectionLocal={CalibrationCorrectionLocal.eulerAngles}");
             // Once calibration is complete, direct the user to eyetracking scene.
             ShowResult("Calibration complete", GetBiasQualityColor(averageResidualDegrees));
             consecutiveFullRetries = 0;
@@ -469,13 +671,11 @@ public class CalibrationManager : MonoBehaviour
         else
         {
             consecutiveFullRetries++;
-            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying (consecutive full retries={consecutiveFullRetries}). Residual error={averageResidualDegrees:F1}° ({qualityLabel}, {qualityPercent}%) vs uncorrected {averageUncorrectedResidualDegrees:F1}°, worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°{(worstPointAcceptable ? "" : " - FAILED worst-point gate")}), training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
+            Debug.Log($"[CalibrationManager] Validation complete but quality below the {GoodBiasCeilingDegrees}° Good threshold - retrying (consecutive full retries={consecutiveFullRetries}). Residual error={averageResidualDegrees:F1}° vs uncorrected {averageUncorrectedResidualDegrees:F1}°, worst point={worstResidualPointIndex} ({worstResidualDegrees:F1}°{(worstPointAcceptable ? "" : " - FAILED worst-point gate")}), training-set bias was {averageTrainingBiasDegrees:F1}° for comparison. Precision (avg sample spread)={averagePrecisionDegrees:F1}°.");
 
-            string message = "Calibration Quality Too Low - Retrying...";
-            if (consecutiveFullRetries >= fullSequenceFitGuidanceThreshold)
-            {
-                message += " Try adjusting your headset fit.";
-            }
+            string message = consecutiveFullRetries >= fullSequenceFitGuidanceThreshold
+                ? "Retrying... check headset fit"
+                : "Retrying...";
             ShowResult(message, GetBiasQualityColor(averageResidualDegrees));
             Invoke(nameof(RetryCalibration), resultDisplayDuration);
         }
@@ -488,17 +688,9 @@ public class CalibrationManager : MonoBehaviour
     private const float PoorBiasCeilingDegrees = 5f;
     private const float GoodBiasCeilingDegrees = 3f;
 
-    private static string GetBiasQualityLabel(float averageBiasDegrees)
-    {
-        if (averageBiasDegrees <= 1.5f) return "Excellent";
-        if (averageBiasDegrees <= GoodBiasCeilingDegrees) return "Good";
-        if (averageBiasDegrees <= PoorBiasCeilingDegrees) return "Fair";
-        return "Poor";
-    }
-
     private static Color GetBiasQualityColor(float averageBiasDegrees)
     {
-        if (averageBiasDegrees <= GoodBiasCeilingDegrees) return Color.green;
+        if (averageBiasDegrees <= GoodBiasCeilingDegrees) return new Color(0f, 1f, 0.56078434f);
         if (averageBiasDegrees <= PoorBiasCeilingDegrees) return Color.yellow;
         return new Color(1f, 0.5f, 0f);
     }
@@ -535,6 +727,9 @@ public class CalibrationManager : MonoBehaviour
         pointsCollected = 0;
         currentPointRetryCount = 0;
         acceptedPointCorrections.Clear();
+        perPointCorrectionAngles.Clear();
+        perPointValidationResiduals.Clear();
+        perPointUncorrectedValidationResiduals.Clear();
         biasAngleSum = 0f;
         validationResidualSum = 0f;
         validationPrecisionSum = 0f;
@@ -554,7 +749,23 @@ public class CalibrationManager : MonoBehaviour
         phase = Phase.Calibrating;
 
         ShowResult(string.Empty, Color.white);
+        HideValidationQualityDots();
+        if (markerFlashCoroutine != null)
+        {
+            StopCoroutine(markerFlashCoroutine);
+            markerFlashCoroutine = null;
+        }
+        if (markerMaterialInstance != null)
+        {
+            markerMaterialInstance.color = markerBaseColor;
+        }
+        if (markerProgressRing != null)
+        {
+            markerProgressRing.fillAmount = 0f;
+        }
         calibrationMarker.gameObject.SetActive(true);
+        calibrationMarker.localScale = markerBaseScale;
         calibrationMarker.position = transform.TransformPoint(calibrationPointLocalOffsets[0]);
+        UpdateProgressText();
     }
 }

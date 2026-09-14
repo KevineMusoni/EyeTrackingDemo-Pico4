@@ -50,6 +50,10 @@ public class CalibrationManager : MonoBehaviour
     // assumes the head stays still through the whole point sequence, so a plain static position
     // stays in view the entire time without needing to be head-locked.
     [SerializeField] private TMP_Text progressText;
+    // Shown once at Start, blocks Update from running until the wearer presses OK -
+    // see OnInstructionAcknowledged. Nothing about the sequence (settle timers, marker
+    // position) should start counting down before the wearer has actually been told what to do.
+    [SerializeField] private GameObject instructionPanel;
 
     [Header("Marker Visuals")]
     // The marker's own sphere - used for the idle-pulse breathing scale and the retry flash.
@@ -206,6 +210,10 @@ public class CalibrationManager : MonoBehaviour
     private Vector3 markerBaseScale;
     private Coroutine markerFlashCoroutine;
 
+    // False until OnInstructionAcknowledged fires - gates Update entirely, so settle/sample
+    // timing only ever starts once the wearer has confirmed they know what to do.
+    private bool hasStarted = false;
+
     private void Awake()
     {
         IsCalibrated = false;
@@ -231,12 +239,21 @@ public class CalibrationManager : MonoBehaviour
             // (both the theme-color set here and the retry flash later) never touches the
             // shared material asset or any other renderer using it.
             markerMaterialInstance = markerRenderer.material;
-            // Amber, not the app's theme green - this marker IS the "look at me, still
-            // loading" signal, and green is reserved for the small Done breadcrumbs left
-            // behind once a point is confirmed (see DoneDotColor) so the two are never
-            // confusable with each other.
-            markerBaseColor = new Color(0.94f, 0.62f, 0.15f, 1f);
+            // Bright yellow, not the app's theme green - this marker IS the "look at me,
+            // still loading" signal, and green is reserved for the small Done breadcrumbs
+            // left behind once a point is confirmed (see DoneDotColor) so the two are never
+            // confusable with each other. Plain amber wasn't vivid enough to read clearly
+            // against the black background - yellow is the most saturated option left in
+            // this app's palette (black/white/green/yellow/red) without colliding with any
+            // of the others.
+            markerBaseColor = new Color(1f, 0.92f, 0f, 1f);
             markerMaterialInstance.color = markerBaseColor;
+            // The Standard shader's albedo alone depends on scene lighting to actually read as
+            // bright - against this scene's dark background there isn't enough light hitting the
+            // sphere for a correct albedo color to look vivid. Driving emission the same color
+            // makes the marker self-lit, so it stays visibly bright regardless of scene lighting.
+            markerMaterialInstance.EnableKeyword("_EMISSION");
+            markerMaterialInstance.SetColor("_EmissionColor", markerBaseColor);
         }
 
         if (markerProgressRing != null)
@@ -257,6 +274,34 @@ public class CalibrationManager : MonoBehaviour
         PositionPointMarkers(calibrationPointDots, calibrationPointLocalOffsets);
         PositionPointMarkers(validationPointDots, validationPointLocalOffsets);
         RefreshPointDots();
+
+        if (instructionPanel != null)
+        {
+            instructionPanel.SetActive(true);
+        }
+        else
+        {
+            // No panel wired up - fall back to starting immediately rather than soft-locking
+            // the whole scene waiting on a button that can never be pressed.
+            hasStarted = true;
+        }
+    }
+
+    // Wired to the instruction panel's OK button (UnityEvent, set in the Inspector). The
+    // button's own click detection goes through CustomButtonPressHandler, not Unity's stock
+    // Button press/release logic - see that class's header for why (this rig's controller
+    // trigger is analog enough to jitter past Unity's drag-threshold and silently cancel a
+    // standard click, the same failure already solved for RoleSelect's/Visualisation's
+    // buttons).
+    public void OnInstructionAcknowledged()
+    {
+        Debug.Log("[CalibrationManager] OnInstructionAcknowledged fired");
+        hasStarted = true;
+        pointTimer = 0f;
+        if (instructionPanel != null)
+        {
+            instructionPanel.SetActive(false);
+        }
     }
 
     private void PositionPointMarkers(PointMarkerView[] markers, Vector3[] offsets)
@@ -301,7 +346,7 @@ public class CalibrationManager : MonoBehaviour
 
     private void Update()
     {
-        if (phase == Phase.Finished || calibrationMarker == null || xrOrigin == null)
+        if (!hasStarted || phase == Phase.Finished || calibrationMarker == null || xrOrigin == null)
         {
             return;
         }
@@ -405,7 +450,9 @@ public class CalibrationManager : MonoBehaviour
         while (t < halfDuration)
         {
             t += Time.deltaTime;
-            markerMaterialInstance.color = Color.Lerp(markerBaseColor, Color.red, t / halfDuration);
+            Color flashColor = Color.Lerp(markerBaseColor, Color.red, t / halfDuration);
+            markerMaterialInstance.color = flashColor;
+            markerMaterialInstance.SetColor("_EmissionColor", flashColor);
             yield return null;
         }
 
@@ -413,11 +460,14 @@ public class CalibrationManager : MonoBehaviour
         while (t < halfDuration)
         {
             t += Time.deltaTime;
-            markerMaterialInstance.color = Color.Lerp(Color.red, markerBaseColor, t / halfDuration);
+            Color flashColor = Color.Lerp(Color.red, markerBaseColor, t / halfDuration);
+            markerMaterialInstance.color = flashColor;
+            markerMaterialInstance.SetColor("_EmissionColor", flashColor);
             yield return null;
         }
 
         markerMaterialInstance.color = markerBaseColor;
+        markerMaterialInstance.SetColor("_EmissionColor", markerBaseColor);
         markerFlashCoroutine = null;
     }
 
@@ -871,6 +921,7 @@ public class CalibrationManager : MonoBehaviour
         if (markerMaterialInstance != null)
         {
             markerMaterialInstance.color = markerBaseColor;
+            markerMaterialInstance.SetColor("_EmissionColor", markerBaseColor);
         }
         if (markerProgressRing != null)
         {

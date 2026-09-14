@@ -55,13 +55,17 @@ public class CustomButtonPressHandler : MonoBehaviour
         wasPressed = new bool[count];
         pressStartedOnButton = new bool[count];
 
+        int resolvedCount = 0;
         for (int i = 0; i < count; i++)
         {
             if (rayInteractors[i] != null)
             {
                 controllers[i] = rayInteractors[i].GetComponentInParent<ActionBasedController>();
+                if (controllers[i] != null) resolvedCount++;
             }
         }
+
+        Debug.Log($"[CustomButtonPressHandler:{name}] rayInteractors={count}, controllers resolved={resolvedCount}");
     }
 
     private void Update()
@@ -87,9 +91,11 @@ public class CustomButtonPressHandler : MonoBehaviour
                 // Remember whether THIS press began on the button - release only fires the click
                 // if it did, so pressing elsewhere and drifting onto the button doesn't count.
                 pressStartedOnButton[i] = TryGetButtonPlaneHit(interactor, out bool inRect) && inRect;
+                Debug.Log($"[CustomButtonPressHandler:{name}] press START (interactor {i}), hit={pressStartedOnButton[i]}");
             }
             else if (fallingEdge)
             {
+                Debug.Log($"[CustomButtonPressHandler:{name}] press END (interactor {i}), wasOnButton={pressStartedOnButton[i]}");
                 if (pressStartedOnButton[i])
                 {
                     button.onClick.Invoke();
@@ -115,10 +121,18 @@ public class CustomButtonPressHandler : MonoBehaviour
         Vector3 planePoint = buttonRect.position;
 
         float denom = Vector3.Dot(rayDirection, planeNormal);
-        if (Mathf.Abs(denom) < 0.0001f) return false; // ray is parallel to the button's plane
+        if (Mathf.Abs(denom) < 0.0001f)
+        {
+            Debug.Log($"[CustomButtonPressHandler:{name}] ray parallel to button plane");
+            return false; // ray is parallel to the button's plane
+        }
 
         float t = Vector3.Dot(planePoint - rayOrigin, planeNormal) / denom;
-        if (t < 0f) return false; // plane is behind the controller
+        if (t < 0f)
+        {
+            Debug.Log($"[CustomButtonPressHandler:{name}] button plane behind controller");
+            return false; // plane is behind the controller
+        }
 
         Vector3 worldPoint = rayOrigin + rayDirection * t;
         Vector3 local = buttonRect.InverseTransformPoint(worldPoint);

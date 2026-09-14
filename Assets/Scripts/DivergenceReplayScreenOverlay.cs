@@ -26,11 +26,11 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private Color specialistDotColor = new Color(0f, 0.6f, 0f);   // dark green
     [SerializeField] private Color traineeDotColor = new Color(0.85f, 0.65f, 0f);  // gold
 
-    [SerializeField] private int dotRadiusPixels = 12;
+    [SerializeField] private int dotRadiusPixels = 8;
 
     [SerializeField] private float tailDurationSeconds = 1f; // how far back in time the tail reaches
     [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
-    [SerializeField] private int tailMinRadiusPixels = 4; //size of the oldest (tail-end) dot
+    [SerializeField] private int tailMinRadiusPixels = 2; //size of the oldest (tail-end) dot
 
     // The key area (per phase) gets a pair of concentric rings: an outer one for the specialist
     // and an inner one for the trainee. Each ring reuses that person's own dot colour

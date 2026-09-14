@@ -89,9 +89,8 @@ pre-existing, unrelated) frozen controller-ray issue. The actual root cause was 
 failing to communicate with the physical sensor over UART, retrying and failing on a ~10-second
 loop (`uart_open` → immediate `Uart_Close` → fixed `79 00 00 79` response → `retry_cnt=3 ret=4`).
 That's a hardware/firmware-level fault a Unity app has no ability to cause or fix - the code
-faithfully reflects whatever the driver reports, and the driver currently has nothing real to
-report. Kept in the active build (not shelved) since the implementation itself is correct and
-the feature is meant to work on this hardware - this is a "waiting on a fix outside this
+ reflects what the driver reports, and the driver currently has nothing real to
+report. Kept in the active build (not shelved) since the implementation itself is correct and the feature is meant to work on this hardware - this is a "waiting on a fix outside this
 project" state, not a design dead end.
 
 ### User Calibration

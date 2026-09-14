@@ -1397,7 +1397,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   flatMono: 1
   videoFileName: LAR_Surgery_test_20s_seekable.mp4
-  playbackSpeed: 0.5
+  playbackSpeed: 0.3
   overlayShape: 1
   cylinderRadius: 0
 --- !u!114 &743741209
@@ -1710,7 +1710,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_text: Specialist (green) and trainee (yellow) gaze tracked live against the recorded
-    video; red shows when the highest divergence occured.
+    video.
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

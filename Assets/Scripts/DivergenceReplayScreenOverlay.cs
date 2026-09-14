@@ -62,6 +62,16 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private TMP_Text replayTimeText;
     [SerializeField] private TMP_Text phaseReadoutText;
 
+    // One card per videoPhases entry - shows at a glance which phases are done (and how well),
+    // which is currently playing, and which haven't started yet, instead of only ever showing
+    // the single phase the replay happens to be scrubbed to.
+    [SerializeField] private Image[] phaseTrackerBackgrounds;
+    [SerializeField] private TMP_Text[] phaseTrackerLabels;
+    [SerializeField] private Color trackerPendingColor = new Color(0.92f, 0.92f, 0.9f);
+    [SerializeField] private Color trackerPendingTextColor = new Color(0.55f, 0.55f, 0.53f);
+    [SerializeField] private Color trackerCurrentColor = new Color(0.98f, 0.87f, 0.68f);
+    [SerializeField] private Color trackerCurrentTextColor = new Color(0.65f, 0.4f, 0.05f);
+
 
     [Serializable]
     private class GazeSample
@@ -392,28 +402,118 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         string header = $"<b>{p.name}</b>   <color=#FFFFFFAA>Phase {idx + 1} of {videoPhases.Length}</color>";
 
         string detail;
+        string guidance = "";
         if (!p.hasKeyArea)
         {
             detail = "<color=#FFFFFF99>no clear key area this phase</color>";
         }
         else
         {
-            detail = $"<color=#00FF8F>Expert {p.specialistDwellSeconds:0.0}s</color>" +
-                    $"     <color=#D9A600>You {p.traineeDwellSeconds:0.0}s</color>" +
+            detail = $"<color=#00FF8F>Expert {BarString(1f)} {p.specialistDwellSeconds:0.0}s</color>" +
+                    $"     <color=#D9A600>You {BarString(DwellRatio(p))} {p.traineeDwellSeconds:0.0}s</color>" +
                     $"     {PhaseVerdict(p)}";
+            guidance = PhaseGuidance(p);
         }
 
-        phaseReadoutText.text = header + "\n" + detail;
+        string text = header + "\n" + detail;
+        if (!string.IsNullOrEmpty(guidance))
+        {
+            text += "\n<mark=#FFD86633 padding=10,10,6,6><color=#FFD866>" + guidance + "</color></mark>";
+        }
+        phaseReadoutText.text = text;
+        UpdatePhaseTrackerRow(elapsed);
     }
 
-    // Same classification the slider scorecard uses, as a coloured word.
+    // Colours/labels the phase tracker row - done phases reuse the same pass/partial/missed
+    // colours as the slider scorecard (markerPassColor etc.) so the two stay visually consistent
+    // instead of introducing a second colour language for the same three outcomes.
+    private void UpdatePhaseTrackerRow(float elapsed)
+    {
+        if (phaseTrackerBackgrounds == null) return;
+
+        for (int i = 0; i < videoPhases.Length && i < phaseTrackerBackgrounds.Length; i++)
+        {
+            VideoPhase phase = videoPhases[i];
+            if (phaseTrackerBackgrounds[i] == null) continue;
+
+            string label = $"Phase {i + 1}";
+            Color bg;
+            Color fg;
+            string symbol;
+
+            if (elapsed < phase.startSecond)
+            {
+                bg = trackerPendingColor;
+                fg = trackerPendingTextColor;
+                symbol = "···";
+            }
+            else if (elapsed <= phase.endSecond)
+            {
+                bg = trackerCurrentColor;
+                fg = trackerCurrentTextColor;
+                symbol = "●";
+            }
+            else
+            {
+                bool pass = phase.hasKeyArea && phase.specialistDwellSeconds > 0f && phase.traineeDwellSeconds >= phase.specialistDwellSeconds;
+                bool missed = phase.hasKeyArea && phase.traineeDwellSeconds <= 0f;
+                bg = pass ? markerPassColor : missed ? markerMissedColor : markerPartialColor;
+                fg = Color.white;
+                symbol = "✓";
+            }
+
+            bg.a = 1f;
+            phaseTrackerBackgrounds[i].color = bg;
+            if (phaseTrackerLabels[i] != null)
+            {
+                phaseTrackerLabels[i].text = $"{symbol}\n{label}";
+                phaseTrackerLabels[i].color = fg;
+            }
+        }
+    }
+
+    private float DwellRatio(VideoPhase p)
+    {
+        return p.specialistDwellSeconds > 0f
+            ? Mathf.Clamp01(p.traineeDwellSeconds / p.specialistDwellSeconds)
+            : 0f;
+    }
+
+    // Renders a 10-block filled/empty bar as text, so the Expert/You comparison reads as a
+    // visual proportion at a glance instead of requiring the two second-counts to be compared
+    // mentally. Reuses the phaseReadoutText's existing rich-text colour approach rather than
+    // adding new Image-based UI, since this panel's canvas has no spare room below it for new
+    // elements without a wider layout pass (see PhaseReadout's sizeDelta history).
+    private static string BarString(float ratio01)
+    {
+        const int totalBlocks = 10;
+        int filled = Mathf.RoundToInt(Mathf.Clamp01(ratio01) * totalBlocks);
+        return new string('█', filled) + "<color=#FFFFFF33>" + new string('░', totalBlocks - filled) + "</color>";
+    }
+
+    // Same classification the slider scorecard uses, as a pill-style badge. <mark> draws a
+    // background highlight behind exactly the enclosed text wherever it ends up laid out - unlike
+    // a separate Image, it can't drift out of position behind this dynamically-sized rich text.
     private string PhaseVerdict(VideoPhase p)
     {
         if (p.specialistDwellSeconds > 0f && p.traineeDwellSeconds >= p.specialistDwellSeconds)
-            return "<color=#33CC4D>Matched</color>";
+            return "<mark=#33CC4D40 padding=8,8,2,2><color=#33CC4D> Matched </color></mark>";
         if (p.traineeDwellSeconds <= 0f)
-            return "<color=#E62626>Missed</color>";
-        return "<color=#FF8C00>Partial</color>";
+            return "<mark=#E6262640 padding=8,8,2,2><color=#E62626> Missed </color></mark>";
+        return "<mark=#FF8C0040 padding=8,8,2,2><color=#FF8C00> Partial </color></mark>";
+    }
+
+    // A specific, actionable note for why a phase was partial/missed, instead of leaving the
+    // trainee with only a score. Wording is a starting point - real phrasing should come from
+    // clinical input (see SETUP_AND_DEBUG_NOTES.md's "Later/blocked" list), but the underlying
+    // data (dwell ratio, whether the trainee ever looked at all) is already computed and real.
+    private string PhaseGuidance(VideoPhase p)
+    {
+        if (p.traineeDwellSeconds <= 0f)
+            return "You never looked at the key area this phase.";
+        if (p.traineeDwellSeconds < p.specialistDwellSeconds)
+            return "You looked away too early - stay on the instrument tip longer.";
+        return "";
     }
 
 

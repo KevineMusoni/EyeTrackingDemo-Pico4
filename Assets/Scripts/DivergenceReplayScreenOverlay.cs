@@ -65,6 +65,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // that made them flow-positioned text instead of a real aligned grid. They're now their own
     // independently-positioned elements below (expertFillImage etc., guidanceText).
     [SerializeField] private TMP_Text phaseReadoutText;
+    [SerializeField] private TMP_Text phaseVerdictText;
+    [SerializeField] private RectTransform phaseVerdictBackground;
     [SerializeField] private Image expertFillImage;
     [SerializeField] private Image youFillImage;
     [SerializeField] private TMP_Text expertValueText;
@@ -444,11 +446,42 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         VideoPhase p = videoPhases[idx];
 
         string header = $"<b>{p.name}</b>   <color=#FFFFFFAA>Phase {idx + 1} of {videoPhases.Length}</color>";
-        if (p.hasKeyArea)
-        {
-            header += "     " + PhaseVerdict(p);
-        }
         phaseReadoutText.text = header;
+
+        if (phaseVerdictText != null)
+        {
+            if (p.hasKeyArea)
+            {
+                if (phaseVerdictBackground != null) phaseVerdictBackground.gameObject.SetActive(true);
+
+                string verdictLabel = " " + PhaseVerdict(p) + " ";
+                Color verdictColor = VerdictColor(p);
+                phaseVerdictText.text = verdictLabel;
+                phaseVerdictText.color = verdictColor;
+
+                if (phaseVerdictBackground != null)
+                {
+                    // Sized to the actual word each time - "Matched"/"Partial"/"Missed" aren't
+                    // the same width, and the pill has to hug whichever one is showing.
+                    Vector2 preferred = phaseVerdictText.GetPreferredValues(verdictLabel);
+                    phaseVerdictBackground.sizeDelta = new Vector2(preferred.x + 16, preferred.y + 4);
+
+                    Image bgImage = phaseVerdictBackground.GetComponent<Image>();
+                    if (bgImage != null)
+                    {
+                        // Same alpha (0x40 = ~0.251) already used for these colours elsewhere -
+                        // a translucent chip, not a solid-filled one.
+                        Color bgColor = verdictColor;
+                        bgColor.a = 0.251f;
+                        bgImage.color = bgColor;
+                    }
+                }
+            }
+            else
+            {
+                if (phaseVerdictBackground != null) phaseVerdictBackground.gameObject.SetActive(false);
+            }
+        }
 
         if (!p.hasKeyArea)
         {
@@ -562,10 +595,21 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     private string PhaseVerdict(VideoPhase p)
     {
         if (p.specialistDwellSeconds > 0f && p.traineeDwellSeconds >= p.specialistDwellSeconds)
-            return "<mark=#33CC4D40 padding=8,8,2,2><color=#33CC4D> Matched </color></mark>";
+            return "Matched";
         if (p.traineeDwellSeconds <= 0f)
-            return "<mark=#E6262640 padding=8,8,2,2><color=#E62626> Missed </color></mark>";
-        return "<mark=#FF8C0040 padding=8,8,2,2><color=#FF8C00> Partial </color></mark>";
+            return "Missed";
+        return "Partial";
+    }
+
+    // Same three colours PhaseVerdict()'s labels used to carry inline via <mark>/<color> tags,
+    // now needed as real Color values since the pill background is a resized Image, not text markup.
+    private Color VerdictColor(VideoPhase p)
+    {
+        if (p.specialistDwellSeconds > 0f && p.traineeDwellSeconds >= p.specialistDwellSeconds)
+            return new Color(0.2f, 0.8f, 0.302f);
+        if (p.traineeDwellSeconds <= 0f)
+            return new Color(0.902f, 0.149f, 0.149f);
+        return new Color(1f, 0.549f, 0f);
     }
 
     // A specific, actionable note for why a phase was partial/missed, instead of leaving the

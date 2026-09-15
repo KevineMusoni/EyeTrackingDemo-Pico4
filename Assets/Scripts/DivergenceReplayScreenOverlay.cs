@@ -60,13 +60,32 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private SurgeryVideoOverlayPlayer videoPlayer;
     [SerializeField] private Slider replayProgressSlider;
     [SerializeField] private TMP_Text replayTimeText;
+    // Header line only now ("Applying seal - Phase 2 of 3   [Partial]") - the Expert/You
+    // comparison and the guidance note used to be extra lines appended to this same string, but
+    // that made them flow-positioned text instead of a real aligned grid. They're now their own
+    // independently-positioned elements below (expertFillImage etc., guidanceText).
     [SerializeField] private TMP_Text phaseReadoutText;
+    [SerializeField] private Image expertFillImage;
+    [SerializeField] private Image youFillImage;
+    [SerializeField] private TMP_Text expertValueText;
+    [SerializeField] private TMP_Text youValueText;
+    [SerializeField] private TMP_Text guidanceText;
+    // The card background and icon around guidanceText - these have to hide together with the
+    // text itself when there's no guidance to show (trainee matched or beat the specialist),
+    // otherwise an empty amber card with a lit bulb icon and no words sits there looking broken.
+    [SerializeField] private GameObject guidanceCard;
+    [SerializeField] private GameObject guidanceIcon;
 
     // One card per videoPhases entry - shows at a glance which phases are done (and how well),
     // which is currently playing, and which haven't started yet, instead of only ever showing
     // the single phase the replay happens to be scrubbed to.
     [SerializeField] private Image[] phaseTrackerBackgrounds;
     [SerializeField] private TMP_Text[] phaseTrackerLabels;
+    // Real icons instead of text glyphs for "currently playing" (clock) and "done" (checkmark -
+    // reuses Unity's built-in Checkmark sprite, the same one Calibration.unity's breadcrumbs
+    // already use). Pending stays a plain "..." text symbol since that already reads clearly.
+    [SerializeField] private Image[] phaseTrackerClockIcons;
+    [SerializeField] private Image[] phaseTrackerCheckIcons;
     [SerializeField] private Color trackerPendingColor = new Color(0.92f, 0.92f, 0.9f);
     [SerializeField] private Color trackerPendingTextColor = new Color(0.55f, 0.55f, 0.53f);
     [SerializeField] private Color trackerCurrentColor = new Color(0.98f, 0.87f, 0.68f);
@@ -400,28 +419,44 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         VideoPhase p = videoPhases[idx];
 
         string header = $"<b>{p.name}</b>   <color=#FFFFFFAA>Phase {idx + 1} of {videoPhases.Length}</color>";
+        if (p.hasKeyArea)
+        {
+            header += "     " + PhaseVerdict(p);
+        }
+        phaseReadoutText.text = header;
 
-        string detail;
-        string guidance = "";
         if (!p.hasKeyArea)
         {
-            detail = "<color=#FFFFFF99>no clear key area this phase</color>";
+            if (expertFillImage != null) expertFillImage.fillAmount = 0f;
+            if (youFillImage != null) youFillImage.fillAmount = 0f;
+            if (expertValueText != null) expertValueText.text = "";
+            if (youValueText != null) youValueText.text = "";
+            SetGuidanceVisible(true);
+            if (guidanceText != null) guidanceText.text = "<color=#FFFFFF99>no clear key area this phase</color>";
         }
         else
         {
-            detail = $"<color=#00FF8F>Expert {BarString(1f)} {p.specialistDwellSeconds:0.0}s</color>" +
-                    $"     <color=#D9A600>You {BarString(DwellRatio(p))} {p.traineeDwellSeconds:0.0}s</color>" +
-                    $"     {PhaseVerdict(p)}";
-            guidance = PhaseGuidance(p);
+            if (expertFillImage != null) expertFillImage.fillAmount = 1f;
+            if (youFillImage != null) youFillImage.fillAmount = DwellRatio(p);
+            if (expertValueText != null) expertValueText.text = $"{p.specialistDwellSeconds:0.0}s";
+            if (youValueText != null) youValueText.text = $"{p.traineeDwellSeconds:0.0}s";
+
+            // Matched or beat the specialist - there's nothing to correct, so the whole hint
+            // (card, icon, text together) hides rather than leaving an empty amber box behind.
+            string guidance = PhaseGuidance(p);
+            bool hasGuidance = !string.IsNullOrEmpty(guidance);
+            SetGuidanceVisible(hasGuidance);
+            if (guidanceText != null) guidanceText.text = hasGuidance ? guidance : "";
         }
 
-        string text = header + "\n" + detail;
-        if (!string.IsNullOrEmpty(guidance))
-        {
-            text += "\n<mark=#FFD86633 padding=10,10,6,6><color=#FFD866>" + guidance + "</color></mark>";
-        }
-        phaseReadoutText.text = text;
         UpdatePhaseTrackerRow(elapsed);
+    }
+
+    private void SetGuidanceVisible(bool visible)
+    {
+        if (guidanceCard != null) guidanceCard.SetActive(visible);
+        if (guidanceIcon != null) guidanceIcon.SetActive(visible);
+        if (guidanceText != null) guidanceText.gameObject.SetActive(visible);
     }
 
     // Colours/labels the phase tracker row - done phases reuse the same pass/partial/missed
@@ -440,6 +475,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             Color bg;
             Color fg;
             string symbol;
+            bool showClockIcon = false;
+            bool showCheckIcon = false;
 
             if (elapsed < phase.startSecond)
             {
@@ -451,7 +488,8 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             {
                 bg = trackerCurrentColor;
                 fg = trackerCurrentTextColor;
-                symbol = "●";
+                symbol = ""; // the clock icon takes this line instead of a text symbol
+                showClockIcon = true;
             }
             else
             {
@@ -459,11 +497,25 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
                 bool missed = phase.hasKeyArea && phase.traineeDwellSeconds <= 0f;
                 bg = pass ? markerPassColor : missed ? markerMissedColor : markerPartialColor;
                 fg = Color.white;
-                symbol = "✓";
+                symbol = ""; // the checkmark icon takes this line instead of a text symbol
+                showCheckIcon = true;
             }
 
             bg.a = 1f;
             phaseTrackerBackgrounds[i].color = bg;
+
+            if (phaseTrackerClockIcons != null && i < phaseTrackerClockIcons.Length && phaseTrackerClockIcons[i] != null)
+            {
+                phaseTrackerClockIcons[i].gameObject.SetActive(showClockIcon);
+                phaseTrackerClockIcons[i].color = fg;
+            }
+
+            if (phaseTrackerCheckIcons != null && i < phaseTrackerCheckIcons.Length && phaseTrackerCheckIcons[i] != null)
+            {
+                phaseTrackerCheckIcons[i].gameObject.SetActive(showCheckIcon);
+                phaseTrackerCheckIcons[i].color = fg;
+            }
+
             if (phaseTrackerLabels[i] != null)
             {
                 phaseTrackerLabels[i].text = $"{symbol}\n{label}";
@@ -477,18 +529,6 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         return p.specialistDwellSeconds > 0f
             ? Mathf.Clamp01(p.traineeDwellSeconds / p.specialistDwellSeconds)
             : 0f;
-    }
-
-    // Renders a 10-block filled/empty bar as text, so the Expert/You comparison reads as a
-    // visual proportion at a glance instead of requiring the two second-counts to be compared
-    // mentally. Reuses the phaseReadoutText's existing rich-text colour approach rather than
-    // adding new Image-based UI, since this panel's canvas has no spare room below it for new
-    // elements without a wider layout pass (see PhaseReadout's sizeDelta history).
-    private static string BarString(float ratio01)
-    {
-        const int totalBlocks = 10;
-        int filled = Mathf.RoundToInt(Mathf.Clamp01(ratio01) * totalBlocks);
-        return new string('█', filled) + "<color=#FFFFFF33>" + new string('░', totalBlocks - filled) + "</color>";
     }
 
     // Same classification the slider scorecard uses, as a pill-style badge. <mark> draws a

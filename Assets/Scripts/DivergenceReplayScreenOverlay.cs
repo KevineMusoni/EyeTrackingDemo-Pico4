@@ -187,79 +187,6 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         // Show phase 1's result before playback starts, rather than a blank line.
         UpdatePhaseReadout(0f);
 
-        if (replayProgressSlider != null)
-        {
-            replayProgressSlider.minValue = 0f;
-            replayProgressSlider.maxValue = videoLengthSeconds;
-        }
-
-        if (replayProgressSlider != null && phaseDivergenceMarkers != null)
-        {
-            // Layout hasn't run yet this frame - force it so the RectTransform widths below
-            // are the resolved on-screen sizes, not the serialized design-time values (the
-            // Fill Area stretches to its parent, so its rect.width is meaningless until a
-            // layout pass fills it in).
-            Canvas.ForceUpdateCanvases();
-
-            // Map the phase timeline onto the slider's Fill Area, not the slider bounds: the
-            // markers are parented there and it's inset from the slider edges, so measuring
-            // the slider instead would scale every segment slightly too wide and overflow the
-            // last one past the track.
-            float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
-            RectTransform markerParent = phaseDivergenceMarkers.Length > 0 && phaseDivergenceMarkers[0] != null
-                ? phaseDivergenceMarkers[0].parent as RectTransform
-                : null;
-            if (markerParent != null)
-            {
-                barWidth = markerParent.rect.width;
-            }
-            float pixelsPerSecond = barWidth / videoLengthSeconds;
-
-            for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
-            {
-                VideoPhase phase = videoPhases[i];
-                RectTransform marker = phaseDivergenceMarkers[i];
-                if (marker == null) continue;
-
-                // A phase with no specialist data has no key area to score against - hide
-                // its segment rather than leaving it at its scene-default size and colour.
-                if (!phase.hasKeyArea)
-                {
-                    marker.gameObject.SetActive(false);
-                    continue;
-                }
-                marker.gameObject.SetActive(true);
-
-                // Span the phase, inset by half the gap on each side so neighbouring
-                // segments don't touch. Clamp the right edge to barWidth: the phases tile
-                // the full 0-videoLength range, so rounding can otherwise push the last
-                // segment a pixel or two past the end of the bar.
-                float startX = phase.startSecond * pixelsPerSecond + markerGapPixels * 0.5f;
-                float endX = Mathf.Min(phase.endSecond * pixelsPerSecond - markerGapPixels * 0.5f, barWidth);
-                float width = Mathf.Max(0f, endX - startX);
-                marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
-                marker.sizeDelta = new Vector2(width, markerHeightPixels);
-
-                // The colour is the feedback. Pass needs the specialist to actually have a
-                // dwell time to match (specialistDwellSeconds > 0); a degenerate phase where
-                // even the specialist scored zero falls through to missed/partial.
-                Image markerImage = marker.GetComponent<Image>();
-                if (markerImage != null)
-                {
-                    Color c;
-                    if (phase.specialistDwellSeconds > 0f && phase.traineeDwellSeconds >= phase.specialistDwellSeconds)
-                        c = markerPassColor;
-                    else if (phase.traineeDwellSeconds <= 0f)
-                        c = markerMissedColor;
-                    else
-                        c = markerPartialColor;
-
-                    c.a = markerAlpha;
-                    markerImage.color = c;
-                }
-            }
-        }
-
         Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, phases=[{string.Join(", ", videoPhases.Select(p => $"{p.name}: spec={p.specialistDwellSeconds:F1}s trainee={p.traineeDwellSeconds:F1}s"))}].");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
@@ -267,19 +194,117 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
         if (videoPlayer != null)
         {
-            // plays immediately if the video already started
-
+            // Slider/marker setup moves to OnVideoPlaybackStarted() below instead of running here -
+            // the real duration isn't known until playback actually starts, so sizing the slider
+            // to it has to wait too. Fires immediately if playback already started.
             videoPlayer.SubscribeOrFireImmediately(OnVideoPlaybackStarted);
         }
         else
         {
+            // No video player wired up - nothing will ever report a real duration, so just use
+            // the configured videoLengthSeconds as-is and set up immediately, same as before.
+            SetupSliderAndMarkers();
             BeginReplayTiming();
         }
     }
 
     private void OnVideoPlaybackStarted()
     {
+        // Prefer the video's real length over the manually-configured guess, whenever it's
+        // actually available - videoLengthSeconds stays as a fallback for cases where it isn't
+        // (Editor Play Mode, or the JNI duration query failing).
+        float realDurationSeconds = videoPlayer.GetDurationSeconds();
+        if (realDurationSeconds > 0f)
+        {
+            Debug.Log($"[DivergenceReplayScreenOverlay] Using real video duration ({realDurationSeconds:F1}s) instead of the configured videoLengthSeconds ({videoLengthSeconds}s).");
+            videoLengthSeconds = Mathf.RoundToInt(realDurationSeconds);
+        }
+
+        SetupSliderAndMarkers();
         BeginReplayTiming();
+    }
+
+    // Sizes the replay slider and lays out the per-phase divergence markers against
+    // videoLengthSeconds - separated from Start() so it can run either immediately (no video
+    // player wired up) or once the real duration is known (see OnVideoPlaybackStarted()).
+    private void SetupSliderAndMarkers()
+    {
+        if (replayProgressSlider != null)
+        {
+            replayProgressSlider.minValue = 0f;
+            replayProgressSlider.maxValue = videoLengthSeconds;
+        }
+
+        if (replayProgressSlider == null || phaseDivergenceMarkers == null) return;
+
+        // Layout hasn't run yet this frame - force it so the RectTransform widths below
+        // are the resolved on-screen sizes, not the serialized design-time values (the
+        // Fill Area stretches to its parent, so its rect.width is meaningless until a
+        // layout pass fills it in).
+        Canvas.ForceUpdateCanvases();
+
+        // Map the phase timeline onto the slider's Fill Area, not the slider bounds: the
+        // markers are parented there and it's inset from the slider edges, so measuring
+        // the slider instead would scale every segment slightly too wide and overflow the
+        // last one past the track.
+        float barWidth = replayProgressSlider.GetComponent<RectTransform>().rect.width;
+        RectTransform markerParent = phaseDivergenceMarkers.Length > 0 && phaseDivergenceMarkers[0] != null
+            ? phaseDivergenceMarkers[0].parent as RectTransform
+            : null;
+        if (markerParent != null)
+        {
+            barWidth = markerParent.rect.width;
+        }
+        float pixelsPerSecond = barWidth / videoLengthSeconds;
+
+        for (int i = 0; i < videoPhases.Length && i < phaseDivergenceMarkers.Length; i++)
+        {
+            VideoPhase phase = videoPhases[i];
+            RectTransform marker = phaseDivergenceMarkers[i];
+            if (marker == null) continue;
+
+            // A phase with no specialist data has no key area to score against - hide
+            // its segment rather than leaving it at its scene-default size and colour.
+            if (!phase.hasKeyArea)
+            {
+                marker.gameObject.SetActive(false);
+                continue;
+            }
+            marker.gameObject.SetActive(true);
+
+            // Span the phase, inset by half the gap on each side so neighbouring
+            // segments don't touch. Clamp the right edge to barWidth: the phases tile
+            // the full 0-videoLength range, so rounding can otherwise push the last
+            // segment a pixel or two past the end of the bar. Also clamp startSecond/endSecond
+            // themselves to videoLengthSeconds first - a configured phase that runs past the
+            // real (possibly shorter-than-expected) video length would otherwise produce a
+            // negative-width or off-track segment instead of just being clipped to fit.
+            float clampedStart = Mathf.Min(phase.startSecond, videoLengthSeconds);
+            float clampedEnd = Mathf.Min(phase.endSecond, videoLengthSeconds);
+            float startX = clampedStart * pixelsPerSecond + markerGapPixels * 0.5f;
+            float endX = Mathf.Min(clampedEnd * pixelsPerSecond - markerGapPixels * 0.5f, barWidth);
+            float width = Mathf.Max(0f, endX - startX);
+            marker.anchoredPosition = new Vector2(startX, marker.anchoredPosition.y);
+            marker.sizeDelta = new Vector2(width, markerHeightPixels);
+
+            // The colour is the feedback. Pass needs the specialist to actually have a
+            // dwell time to match (specialistDwellSeconds > 0); a degenerate phase where
+            // even the specialist scored zero falls through to missed/partial.
+            Image markerImage = marker.GetComponent<Image>();
+            if (markerImage != null)
+            {
+                Color c;
+                if (phase.specialistDwellSeconds > 0f && phase.traineeDwellSeconds >= phase.specialistDwellSeconds)
+                    c = markerPassColor;
+                else if (phase.traineeDwellSeconds <= 0f)
+                    c = markerMissedColor;
+                else
+                    c = markerPartialColor;
+
+                c.a = markerAlpha;
+                markerImage.color = c;
+            }
+        }
     }
 
     private void BeginReplayTiming()
@@ -552,7 +577,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         if (p.traineeDwellSeconds <= 0f)
             return "You never looked at the key area this phase.";
         if (p.traineeDwellSeconds < p.specialistDwellSeconds)
-            return "You looked away too early - stay on the instrument tip longer.";
+            return "You looked away too early. Keep your eyes on the instrument tip until the seal fully cloases, not just whenb you start applying it.";
         return "";
     }
 
@@ -572,18 +597,30 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
 
 
+    // Binary search instead of a linear scan from index 0 - samples are already sorted by time
+    // once in Start(), and this is called up to ~16x/frame (tailPointCount x 2 people), so an
+    // O(n) scan here scales badly with recording length (fine at a 20s clip's ~1,440 samples,
+    // but a 1-hour recording's ~259,000 samples would mean up to that many comparisons per call,
+    // worse the later into playback you are). This finds the same before/after pair the old scan
+    // did, just in O(log n) - everything below this line (tolerance checks, interpolation) is
+    // unchanged.
     private GazeSample FindInterpolatedSample(List<GazeSample> samples,float time )
     {
         if (samples == null || samples.Count == 0) return null;
 
-        GazeSample before = null;
-        GazeSample after = null;
-
-        for (int i = 0; i < samples.Count; i++)
+        // Finds lo = the first index where samples[lo].time > time (an "upper bound" search) -
+        // samples[lo-1] and samples[lo] are then exactly the before/after pair the linear scan
+        // used to produce.
+        int lo = 0, hi = samples.Count;
+        while (lo < hi)
         {
-            if (samples[i].time <= time) before = samples[i];
-            if (samples[i].time > time) {after = samples[i]; break;}
+            int mid = (lo + hi) / 2;
+            if (samples[mid].time <= time) lo = mid + 1;
+            else hi = mid;
         }
+
+        GazeSample before = lo > 0 ? samples[lo - 1] : null;
+        GazeSample after = lo < samples.Count ? samples[lo] : null;
 
         const float tolerance = 0.15f;
 

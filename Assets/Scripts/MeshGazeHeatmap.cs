@@ -243,6 +243,20 @@ public class MeshGazeHeatmap : MonoBehaviour
         Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' received PlaybackStarted at Time.time={Time.time:F2} - unblocking StampAt().");
         startTime = Time.time;
         waitingForVideoStart = false;
+
+        // Prefer the video's real length over the manually-configured guess, whenever it's
+        // actually available - autoStopAfterSeconds stays as a fallback for cases where it isn't
+        // (Editor Play Mode, or the JNI duration query failing), so this can't turn a working
+        // fixed cutoff into "never stops" by silently overwriting it with 0.
+        if (videoPlayer != null)
+        {
+            float realDurationSeconds = videoPlayer.GetDurationSeconds();
+            if (realDurationSeconds > 0f)
+            {
+                Debug.Log($"[MeshGazeHeatmap] '{gameObject.name}' using real video duration ({realDurationSeconds:F1}s) instead of the configured autoStopAfterSeconds ({autoStopAfterSeconds:F1}s).");
+                autoStopAfterSeconds = realDurationSeconds;
+            }
+        }
     }
 
     private void OnDestroy()

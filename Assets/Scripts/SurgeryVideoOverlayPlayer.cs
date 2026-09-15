@@ -291,7 +291,59 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
 #endif
     }
 
+    // Same JNI reach-around as SeekTo/ApplyPlaybackSpeed - this plugin exposes no duration query
+    // of its own, so this reaches directly into the exoplayer instance and calls ExoPlayer's own
+    // getDuration(). Only meaningful once playback has actually started (the static exoPlayer
+    // field is null before that) - callers should read this from a PlaybackStarted/
+    // SubscribeOrFireImmediately callback, not from their own Start(). Returns 0 if unavailable
+    // (Editor Play Mode, not yet started, or the JNI call fails) - callers must treat 0 as "unknown"
+    // and fall back to their own configured default rather than treating it as a real zero-length video.
+    public float GetDurationSeconds()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!playbackStarted)
+        {
+            return 0f;
+        }
 
+        try
+        {
+            IntPtr exoPlayerFieldId = AndroidJNI.GetStaticFieldID(
+                playVideoClass, "exoPlayer", "Lcom/google/android/exoplayer2/SimpleExoPlayer;");
+            IntPtr exoPlayerInstance = AndroidJNI.GetStaticObjectField(playVideoClass, exoPlayerFieldId);
+
+            if (exoPlayerInstance == IntPtr.Zero)
+            {
+                Debug.LogWarning("[SurgeryVideoOverlayPlayer] exoPlayer field was null - can't read duration.");
+                return 0f;
+            }
+
+            IntPtr exoPlayerClass = AndroidJNI.FindClass("com/google/android/exoplayer2/SimpleExoPlayer");
+            // "()J" - no arguments, returns a Java long (milliseconds). Same signature-verification
+            // caution as SeekTo's seekTo() - GetMethodID can return a zero handle silently on a
+            // wrong signature rather than throwing, hence the explicit check below.
+            IntPtr durationMethod = AndroidJNI.GetMethodID(exoPlayerClass, "getDuration", "()J");
+
+            if (durationMethod == IntPtr.Zero)
+            {
+                Debug.LogError("[SurgeryVideoOverlayPlayer] getDuration method not found - wrong signature.");
+                return 0f;
+            }
+
+            long durationMs = AndroidJNI.CallLongMethod(exoPlayerInstance, durationMethod, new jvalue[0]);
+            float durationSeconds = durationMs / 1000f;
+            Debug.Log($"[SurgeryVideoOverlayPlayer] Duration read: {durationMs}ms ({durationSeconds:F1}s).");
+            return durationSeconds;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[SurgeryVideoOverlayPlayer] GetDurationSeconds failed: {e}");
+            return 0f;
+        }
+#else
+        return 0f;
+#endif
+    }
 
 
     private void OnDestroy()

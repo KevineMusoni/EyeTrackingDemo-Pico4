@@ -32,6 +32,11 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
     [SerializeField] private int tailMinRadiusPixels = 2; //size of the oldest (tail-end) dot
 
+    // Sub-steps stamped along the Catmull-Rom curve between each pair of tail points - higher
+    // reads as a smoother bend through direction changes, at the cost of one extra DrawLine call
+    // per step per pair.
+    [SerializeField] private int tailCurveSegments = 6;
+
     // The key area (per phase) gets a pair of concentric rings: an outer one for the specialist
     // and an inner one for the trainee. Each ring reuses that person's own dot colour
     // (specialistDotColor / traineeDotColor) so it reads as "this is where <that person> should
@@ -804,10 +809,13 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     }
 
     // Draws a fading tapering trail of past positions leading up to the current one, instead of a single static dot - reads back into the already-loaded sample list at several earlier timestamps rather than tracking any new runtime state, so it stays correct even after seeking.
+    // Collects the tail into points first (rather than drawing point-to-point as it used to)
+    // because the Catmull-Rom curve in DrawTailRun needs each point's neighbours on both sides to
+    // compute a smooth bend, not just the point before it.
     private void DrawTail(List<GazeSample> samples, float elapsed, Color baseColor){
-        Vector2? prevUV = null;
-        int prevRadius = tailMinRadiusPixels;
-        Color prevColor = baseColor;
+        var points = new List<Vector2>();
+        var radii = new List<int>();
+        var colors = new List<Color>();
 
         for (int i = 0; i < tailPointCount; i++){
             float age = tailPointCount > 1 ? (float)i / (tailPointCount - 1): 1f; // 0 = oldest, 1 = current
@@ -815,22 +823,66 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             if(t < 0f) continue;
 
             GazeSample sample = FindInterpolatedSample(samples,t);
-            if(sample == null) { prevUV = null; continue;}
+            if(sample == null) { DrawTailRun(points, radii, colors); points.Clear(); radii.Clear(); colors.Clear(); continue; }
 
             int radius = Mathf.RoundToInt(Mathf.Lerp(tailMinRadiusPixels, dotRadiusPixels, age));
             Color faded = new Color(baseColor.r, baseColor.g, baseColor.b, Mathf.Lerp(0.15f, baseColor.a, age));
-            Vector2 uv = new Vector2(sample.u, sample.v);
 
-            if(prevUV.HasValue)
-                DrawLine(prevUV.Value, uv, prevColor, faded, prevRadius, radius);
-            else
-                DrawDot(uv.x, uv.y, faded, radius);
-
-            prevUV = uv;
-            prevRadius = radius;
-            prevColor = faded;
-
+            points.Add(new Vector2(sample.u, sample.v));
+            radii.Add(radius);
+            colors.Add(faded);
         }
+
+        DrawTailRun(points, radii, colors);
+    }
+
+    // Draws one unbroken run of tail points (a run ends wherever a sample was missing, so a real
+    // gap in the data still reads as a gap instead of being smoothed over). A lone point just gets
+    // a dot; two or more are joined with a clamped Catmull-Rom spline - p0/p3 are the neighbouring
+    // points either side of each p1->p2 segment and only steer the curve's tangent, they're never
+    // drawn themselves, so the run's own first/last point is reused as its own missing neighbour.
+    private void DrawTailRun(List<Vector2> points, List<int> radii, List<Color> colors){
+        if (points.Count == 0) return;
+        if (points.Count == 1){
+            DrawDot(points[0].x, points[0].y, colors[0], radii[0]);
+            return;
+        }
+
+        for (int i = 0; i < points.Count - 1; i++){
+            Vector2 p0 = i > 0 ? points[i - 1] : points[i];
+            Vector2 p1 = points[i];
+            Vector2 p2 = points[i + 1];
+            Vector2 p3 = i + 2 < points.Count ? points[i + 2] : points[i + 1];
+
+            Vector2 prevPoint = p1;
+            Color prevColor = colors[i];
+            int prevRadius = radii[i];
+
+            for (int s = 1; s <= tailCurveSegments; s++){
+                float curveT = (float)s / tailCurveSegments;
+                Vector2 curvePoint = CatmullRom(p0, p1, p2, p3, curveT);
+                Color curveColor = Color.Lerp(colors[i], colors[i + 1], curveT);
+                int curveRadius = Mathf.RoundToInt(Mathf.Lerp(radii[i], radii[i + 1], curveT));
+
+                DrawLine(prevPoint, curvePoint, prevColor, curveColor, prevRadius, curveRadius);
+
+                prevPoint = curvePoint;
+                prevColor = curveColor;
+                prevRadius = curveRadius;
+            }
+        }
+    }
+
+    // Standard clamped Catmull-Rom spline through p1->p2, using p0/p3 as tangent handles only.
+    private static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t){
+        float t2 = t * t;
+        float t3 = t2 * t;
+        return 0.5f * (
+            (2f * p1) +
+            (-p0 + p2) * t +
+            (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+            (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+        );
     }
 
     // Same center math as DrawDot, but only keeps a band between innerRadius and outerRadius - an

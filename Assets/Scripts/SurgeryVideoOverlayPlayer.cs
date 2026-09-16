@@ -47,32 +47,12 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     // overlayShape is Cylinder; left at 0 (PXR_OverLay's own default) has no effect on Quad.
     [SerializeField] private float cylinderRadius = 0f;
 
-    // Overlay (the PXR_OverLay default) composites this video on top of everything Unity itself
-    // renders - including any Canvas/UI - since the video bypasses Unity's normal render pipeline
-    // entirely (see the class comment) and gets pasted on by PICO's system compositor afterward.
-    // Underlay flips that, letting normal Unity UI draw on top of the video instead. Per-instance,
-    // same reasoning as overlayShape above: only ReticleDemoVideoScreen needs Underlay (for
-    // StartRecordingButton to actually be visible); every other screen keeps the previous
-    // (implicit) default of Overlay unless explicitly changed in its own Inspector.
-    [SerializeField] private PXR_OverLay.OverlayType overlayType = PXR_OverLay.OverlayType.Overlay;
-
     public float PlaybackSpeed => playbackSpeed;
 
     public event Action PlaybackStarted;
 
     private PXR_OverLay overlay;
-
-    // True once playVideo() has actually been called and the exoPlayer instance exists - needed
-    // by SeekTo()/GetDurationSeconds() regardless of whether the Start Recording button has been
-    // pressed yet. Separate from `started` below: the video loads and is immediately paused (see
-    // OnSurfaceCreated), so exoPlayer exists well before PlaybackStarted should fire.
     private bool playbackStarted;
-
-    // True only once RequestStart() has actually resumed playback - this, not playbackStarted,
-    // is what SubscribeOrFireImmediately/PlaybackStarted mean by "started". Kept separate so a
-    // subscriber that queries during the paused/loaded-but-not-started window doesn't get told
-    // playback already began.
-    private bool started;
 
     // Cached once, in OnSurfaceCreated() - needs to be a field, not a local variable, since SeekTo() is called much later (whenever the replay slider is dragged), long after OnSurfaceCreated()'s own local variables would have gone out of scope.
     private IntPtr playVideoClass;
@@ -88,7 +68,7 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
     // and waits for the real event like before.
     public void SubscribeOrFireImmediately(Action callback)
     {
-        if (started)
+        if (playbackStarted)
         {
             callback();
         }
@@ -127,7 +107,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         }
         overlay.overlayShape = overlayShape;
         overlay.radius = cylinderRadius;
-        // overlay.overlayType = overlayType;
         overlay.isExternalAndroidSurface = true;
         overlay.externalAndroidSurfaceObjectCreated += OnSurfaceCreated;
     }
@@ -157,6 +136,7 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         }
 
         playbackStarted = true;
+        PlaybackStarted?.Invoke();
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         string videoPath = System.IO.Path.Combine(Application.persistentDataPath, videoFileName);
@@ -190,10 +170,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
 
             // log to debug
             Debug.Log("[SurgeryVideoOverlayPlayer] playVideo JNI call completed without exception.");
-
-            // Loaded and visible, but paused right away - PlaybackStarted (and therefore
-            // MeshGazeHeatmap's recording) doesn't fire until RequestStart() actually resumes it.
-            SetPlayWhenReady(false);
         }
         catch (Exception e)
         {
@@ -201,60 +177,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
         }
 #endif
     }
-
-    // Called by StartRecordingButton's OnClick - resumes the already-loaded, paused video and
-    // is the actual "recording starts now" signal (see the started/playbackStarted field
-    // comments above for why this isn't the same moment as OnSurfaceCreated).
-    public void RequestStart()
-    {
-        if (started) return;
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-        SetPlayWhenReady(true);
-#endif
-        started = true;
-        PlaybackStarted?.Invoke();
-    }
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-    // setPlayWhenReady(boolean) - "(Z)V". Same JNI reach-around SeekTo() already uses inline for
-    // its own pause/resume dance - kept as a separate helper here (rather than refactoring SeekTo
-    // to share it) so SeekTo's already-tested behaviour stays untouched.
-    private void SetPlayWhenReady(bool playWhenReady)
-    {
-        try
-        {
-            IntPtr exoPlayerFieldId = AndroidJNI.GetStaticFieldID(
-                playVideoClass, "exoPlayer", "Lcom/google/android/exoplayer2/SimpleExoPlayer;");
-            IntPtr exoPlayerInstance = AndroidJNI.GetStaticObjectField(playVideoClass, exoPlayerFieldId);
-
-            if (exoPlayerInstance == IntPtr.Zero)
-            {
-                Debug.LogWarning("[SurgeryVideoOverlayPlayer] exoPlayer field was null - can't set playWhenReady.");
-                return;
-            }
-
-            IntPtr exoPlayerClass = AndroidJNI.FindClass("com/google/android/exoplayer2/SimpleExoPlayer");
-            IntPtr setPlayWhenReadyMethod = AndroidJNI.GetMethodID(exoPlayerClass, "setPlayWhenReady", "(Z)V");
-
-            if (setPlayWhenReadyMethod == IntPtr.Zero)
-            {
-                Debug.LogError("[SurgeryVideoOverlayPlayer] setPlayWhenReady method not found - wrong signature.");
-                return;
-            }
-
-            jvalue[] args = new jvalue[1];
-            args[0].z = playWhenReady;
-            AndroidJNI.CallVoidMethod(exoPlayerInstance, setPlayWhenReadyMethod, args);
-
-            Debug.Log($"[SurgeryVideoOverlayPlayer] setPlayWhenReady({playWhenReady}) applied.");
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[SurgeryVideoOverlayPlayer] SetPlayWhenReady failed: {e}");
-        }
-    }
-#endif
 
 #if UNITY_ANDROID && !UNITY_EDITOR
 // Adjusted playback speed via unity

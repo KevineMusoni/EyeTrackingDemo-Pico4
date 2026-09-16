@@ -135,7 +135,6 @@ public class SurgeryVideoOverlayPlayer : MonoBehaviour
             return;
         }
 
-
         playbackStarted = true;
         PlaybackStarted?.Invoke();
 

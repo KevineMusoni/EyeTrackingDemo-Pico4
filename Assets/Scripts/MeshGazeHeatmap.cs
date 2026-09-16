@@ -267,6 +267,16 @@ public class MeshGazeHeatmap : MonoBehaviour
         }
     }
 
+    // showing the user how much time is remaining until the video ends
+    // Seconds left before autoStopAfterSeconds cuts this off, for a UI countdown - 0 if there's
+    // no configured/real duration yet (autoStopAfterSeconds <= 0f) or playback hasn't started
+    // (waitingForVideoStart), rather than a misleading large number.
+    public float GetRemainingSeconds()
+    {
+        if (autoStopAfterSeconds <= 0f || waitingForVideoStart) return 0f;
+        return Mathf.Max(0f, autoStopAfterSeconds - (Time.time - startTime));
+    }
+
     // This object is the current gaze target. Called once per frame
     public void StampAt(RaycastHit hit, bool eyesOpen = true)
     {

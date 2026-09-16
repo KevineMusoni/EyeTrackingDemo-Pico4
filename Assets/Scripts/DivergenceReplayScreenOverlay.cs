@@ -192,6 +192,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         Debug.Log($"[DivergenceReplayScreenOverlay] Loaded - specialist={specialistSamples?.Count ?? 0} samples, trainee={traineeSamples?.Count ?? 0} samples, phases=[{string.Join(", ", videoPhases.Select(p => $"{p.name}: spec={p.specialistDwellSeconds:F1}s trainee={p.traineeDwellSeconds:F1}s"))}].");
 
         dotsTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
+        dotsTexture.filterMode = FilterMode.Bilinear; // explicit, not relying on the constructor's default -
+                                                    // only helps once DrawDot/SetPixelSafe above actually
+                                                    // produce soft edges for it to interpolate between.
         dotsPixels = new Color[textureSize * textureSize];
 
         if (videoPlayer != null)
@@ -762,12 +765,22 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         int x = Mathf.RoundToInt(Mathf.Clamp01(u) * (textureSize - 1));
         int y = Mathf.RoundToInt(Mathf.Clamp01(v) * (textureSize - 1));
 
+        // feather the outer 1.5px of the circle instead of a hard binary cutoff - without this, every stamped dot has a jagged, opaque rim/ trail once dots overlap along drawline segment.
+        float featherWidth = 1.5f;
         for (int dy = -radius; dy <= radius; dy++)
         {
             for (int dx = -radius; dx <= radius; dx++)
             {
-                if (dx * dx + dy * dy > radius * radius) continue;
-                SetPixelSafe(x + dx, y + dy, color);
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                if (dist > radius) continue;
+
+                float edgeAlpha = dist > radius - featherWidth
+                    ? Mathf.Clamp01((radius - dist) / featherWidth)
+                    : 1f;
+                Color faded = color;
+                faded.a *= edgeAlpha;
+                SetPixelSafe(x + dx, y + dy, faded);
+
             }
         }
     }
@@ -844,8 +857,19 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     private void SetPixelSafe(int x, int y, Color color)
     {
-        if (x < 0 || x >= textureSize || y < 0 || y >= textureSize) return;
-        dotsPixels[y * textureSize + x] = color;
+         if (x < 0 || x >= textureSize || y < 0 || y >= textureSize) return;
+        // Standard "over" compositing instead of a flat overwrite - DrawLine/DrawTail stamp many
+        // overlapping dots per frame, and overwriting made each new stamp hard-replace the last,
+        // baking a visible seam at every overlap instead of one smooth accumulated stroke.
+        int index = y * textureSize + x;
+        Color dst = dotsPixels[index];
+        float srcA = color.a;
+        dotsPixels[index] = new Color(
+            color.r * srcA + dst.r * (1f - srcA),
+            color.g * srcA + dst.g * (1f - srcA),
+            color.b * srcA + dst.b * (1f - srcA),
+            srcA + dst.a * (1f - srcA)
+        );
     }
 
     // ComparisonLoader/GazeReviewLoader, same resolution logic - most recently written file in

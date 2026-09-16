@@ -619,9 +619,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     private string PhaseGuidance(VideoPhase p)
     {
         if (p.traineeDwellSeconds <= 0f)
-            return "You never looked at the key area this phase.";
+            return "You never looked at the key area in this phase.";
         if (p.traineeDwellSeconds < p.specialistDwellSeconds)
-            return "You looked away too early. Keep your eyes on the instrument tip until the seal fully cloases, not just whenb you start applying it.";
+            return "You looked away too early. Keep your eyes on the instrument tip until the seal fully closes, not just when you start applying it.";
         return "";
     }
 

@@ -81,9 +81,6 @@ public class RoleSelectUI : MonoBehaviour
 
     private IEnumerator FlashThenLoad(Image pickedBorder)
     {
-        // Push the frame toward white so it's clearly brighter than either its resting tint or the
-        // other (untouched) border. The Button's own Selected transition starts dimming it after
-        // ~0.1s, but the scene load lands before that fade completes.
         pickedBorder.color = Color.Lerp(pickedBorder.color, Color.white, 0.4f);
         yield return new WaitForSeconds(selectionFlashSeconds);
         SceneManager.LoadScene(mainSceneName);

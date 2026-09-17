@@ -1,18 +1,13 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-// Wired to a UI Button's OnClick() in EyeTrackingDemo.unity - lets a specialist return to the role-select screen without needing a full app relaunch. Only makes sense for a
-// specialist session (a trainee's flow already ends at GazeReviewScreen/ReportScreen, so this hides itself entirely for trainees the same way GazeReviewLoader/ComparisonLoader hide their screens for specialists 
-// same SetActive(false)-in-Start() pattern, just the opposite role. 
+// Wired to a UI Button's OnClick() in EyeTrackingDemo.unity - lets either role return to the
+// role-select screen without needing a full app relaunch. Shown for both specialist and trainee
+// sessions - previously specialist-only, but a trainee mid-session needs the same way back out.
 
 public class ReturnToRoleSelectButton : MonoBehaviour
 {
     [SerializeField] private string roleSelectSceneName = "RoleSelect";
-
-    private void Start()
-    {
-        gameObject.SetActive(SessionRoleManager.IsSpecialist);
-    }
 
     // Wired to the Button's OnClick() in the Inspector.
     public void ReturnToRoleSelect()

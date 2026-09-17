@@ -28,7 +28,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
 
     [SerializeField] private int dotRadiusPixels = 8;
 
-    [SerializeField] private float tailDurationSeconds = 1f; // how far back in time the tail reaches
+    [SerializeField] private float tailDurationSeconds = 0.5f; // how far back in time the tail reaches
     [SerializeField] private int tailPointCount = 8;  //dots per tail - denser = smoother
     [SerializeField] private int tailMinRadiusPixels = 2; //size of the oldest (tail-end) dot
 
@@ -674,7 +674,10 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         GazeSample before = lo > 0 ? samples[lo - 1] : null;
         GazeSample after = lo < samples.Count ? samples[lo] : null;
 
-        const float tolerance = 0.15f;
+        // Widened from 0.15f - a real gap between recorded samples (a blink, a brief tracking
+        // dropout) up to this wide still gets bridged with an interpolated point instead of
+        // breaking the tail into a visibly disconnected bead.
+        const float tolerance = 0.3f;
 
         if (before == null && after == null) return null;
         if (before == null) return Mathf.Abs(after.time - time) <= tolerance ? after: null;
@@ -812,6 +815,9 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
     // Collects the tail into points first (rather than drawing point-to-point as it used to)
     // because the Catmull-Rom curve in DrawTailRun needs each point's neighbours on both sides to
     // compute a smooth bend, not just the point before it.
+    // A missing sample is skipped rather than breaking the run into a separate piece - the whole
+    // tail always draws as one continuous curve (points just pull closer together across a gap)
+    // instead of visibly splitting wherever a sample momentarily wasn't there.
     private void DrawTail(List<GazeSample> samples, float elapsed, Color baseColor){
         var points = new List<Vector2>();
         var radii = new List<int>();
@@ -823,7 +829,7 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
             if(t < 0f) continue;
 
             GazeSample sample = FindInterpolatedSample(samples,t);
-            if(sample == null) { DrawTailRun(points, radii, colors); points.Clear(); radii.Clear(); colors.Clear(); continue; }
+            if(sample == null) continue;
 
             int radius = Mathf.RoundToInt(Mathf.Lerp(tailMinRadiusPixels, dotRadiusPixels, age));
             Color faded = new Color(baseColor.r, baseColor.g, baseColor.b, Mathf.Lerp(0.15f, baseColor.a, age));
@@ -836,11 +842,12 @@ public class DivergenceReplayScreenOverlay : MonoBehaviour
         DrawTailRun(points, radii, colors);
     }
 
-    // Draws one unbroken run of tail points (a run ends wherever a sample was missing, so a real
-    // gap in the data still reads as a gap instead of being smoothed over). A lone point just gets
-    // a dot; two or more are joined with a clamped Catmull-Rom spline - p0/p3 are the neighbouring
-    // points either side of each p1->p2 segment and only steer the curve's tangent, they're never
-    // drawn themselves, so the run's own first/last point is reused as its own missing neighbour.
+    // Draws one continuous run of tail points (DrawTail no longer breaks the run on a missing
+    // sample - it just skips it - so this always receives every surviving point as one run). A
+    // lone point just gets a dot; two or more are joined with a clamped Catmull-Rom spline - p0/p3
+    // are the neighbouring points either side of each p1->p2 segment and only steer the curve's
+    // tangent, they're never drawn themselves, so the run's own first/last point is reused as its
+    // own missing neighbour.
     private void DrawTailRun(List<Vector2> points, List<int> radii, List<Color> colors){
         if (points.Count == 0) return;
         if (points.Count == 1){
